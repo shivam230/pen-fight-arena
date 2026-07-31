@@ -731,7 +731,9 @@ body {
   .pen-rail { flex: 1; margin: 0; padding: 3px 0 5px; }
   .pen-tile { width: 52px; height: 52px; border-radius: 15px; }
   .cta { min-height: 52px; font-size: 16px; padding: 0 26px; }
-  .credit { position: absolute; bottom: 2px; left: 0; right: 0; }
+  /* Credit gets its own strip so it never sits under the pen rail. */
+  .title-foot { padding-bottom: 14px; }
+  .credit { position: absolute; bottom: 1px; left: 0; right: 0; font-size: 10px; }
 
   .hud { gap: 4px; padding-bottom: calc(var(--safe-b) + 8px); }
   .hud-bottom { flex-direction: row; align-items: flex-end; gap: 14px; }
