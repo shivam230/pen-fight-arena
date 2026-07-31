@@ -173,7 +173,7 @@ export class Match {
     const geo = new THREE.RingGeometry(0.052, 0.070, 40);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({
-      color: owner === 'player' ? 0xffc043 : 0xff5a3c,
+      color: owner === 'player' ? 0x24e8c6 : 0xff4655,
       transparent: true,
       opacity: 0.55,
       depthWrite: false,
@@ -768,7 +768,7 @@ export class Match {
     // The trail tells the truth, including when the truth is "this kills you".
     const danger = result.selfOut;
     const good = result.targetOut;
-    const col = danger ? 0xff4d3d : good ? 0x53f2a4 : 0xffffff;
+    const col = danger ? 0xff4655 : good ? 0x4df2a1 : 0xffffff;
     _aimColor.setHex(col, THREE.SRGBColorSpace);
 
     const geo = this._aimLine.geometry;

@@ -243,6 +243,18 @@ export class Stage {
    */
   setShowcase(group) {
     this.clearShowcase();
+
+    // A dedicated cool key just for the display pen. Without it the lava biome
+    // washes every barrel to the same orange and you cannot tell the pens apart —
+    // which is the one job this screen has.
+    if (!this._showcaseKey) {
+      this._showcaseKey = new THREE.DirectionalLight(0xdfefff, 2.6);
+      this._showcaseKey.position.set(1.2, 1.6, 2.2);
+      this._showcaseRim = new THREE.DirectionalLight(0x9fd8ff, 1.5);
+      this._showcaseRim.position.set(-1.8, 0.5, -1.4);
+    }
+    this.scene.add(this._showcaseKey, this._showcaseRim);
+
     this._showcase = group;
     group.scale.setScalar(SHOWCASE_SCALE);
     group.position.set(0, SHOWCASE_Y, 0);
@@ -252,6 +264,9 @@ export class Stage {
   }
 
   clearShowcase() {
+    if (this._showcaseKey) {
+      this.scene.remove(this._showcaseKey, this._showcaseRim);
+    }
     if (!this._showcase) return;
     this.scene.remove(this._showcase);
     this._showcase = null;

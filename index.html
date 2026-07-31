@@ -75,7 +75,15 @@
 
   <!-- ===================== TITLE / LOADOUT ===================== -->
   <section id="title" class="screen">
-    <h1 class="wordmark"><span>Pen</span><span>Fight</span></h1>
+    <h1 class="wordmark" aria-label="Pen Fight">
+      <span class="wm-kicker" aria-hidden="true">
+        <i></i>Tactical Desk Combat<i></i>
+      </span>
+      <span class="wm-lock" aria-hidden="true">
+        <span class="wm-pen">Pen</span>
+        <span class="wm-fight" data-text="Fight">Fight</span>
+      </span>
+    </h1>
 
     <div class="hero" id="hero">
       <span class="hero-brand" id="hero-brand">Reynolds</span>
@@ -83,8 +91,16 @@
     </div>
 
     <div class="title-foot">
-      <div class="pen-rail" id="pen-rail" role="radiogroup" aria-label="Choose your pen"></div>
-      <button class="cta" id="btn-play">Fight</button>
+      <div class="carousel" id="pen-carousel" role="radiogroup" aria-label="Choose your pen">
+        <div class="carousel-track" id="pen-track"></div>
+        <button class="carousel-arrow carousel-arrow--prev" id="pen-prev"
+                type="button" aria-label="Previous pen"></button>
+        <button class="carousel-arrow carousel-arrow--next" id="pen-next"
+                type="button" aria-label="Next pen"></button>
+      </div>
+
+      <button class="cta" id="btn-play"><span>Fight</span></button>
+
       <a class="credit" href="https://www.studio4by5.com" target="_blank" rel="noopener">
         made with ♥ by <b>studio 4by5</b>
       </a>
@@ -99,7 +115,7 @@
       <p class="card-body" id="result-body"></p>
       <div class="card-actions" id="result-actions" hidden>
         <button class="cta cta--sm" id="btn-rematch">Rematch</button>
-        <button class="ghost glass" id="btn-change">Change pen</button>
+        <button class="ghost" id="btn-change">Change pen</button>
       </div>
     </div>
   </section>

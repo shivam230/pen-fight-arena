@@ -11,7 +11,15 @@ import { Match, STATE } from './game/match.js';
 import { PENS, PEN_BY_ID } from './game/pens.js';
 import { buildPen } from './render/penMesh.js';
 import { UI } from './ui/hud.js';
+import { BIOMES } from './render/biomes.js';
 import { audio } from './audio/sfx.js';
+
+// The loadout screen is always staged on the lava plateau — it is the most
+// dramatic backdrop in the set and gives the teal UI something to burn against.
+// Matches still roll a random biome.
+const LOADOUT_BIOME = Math.max(0, BIOMES.findIndex((b) => b.id === 'caldera'));
+const randomSeed = () => (Math.random() * 1e8) | 0;
+const seedForBiome = (i) => randomSeed() * BIOMES.length + i;
 
 const canvas = document.getElementById('stage');
 const stage = new Stage(canvas);
@@ -58,7 +66,7 @@ function pickCpuPen(playerId) {
   return top[(Math.random() * top.length) | 0].id;
 }
 
-async function buildMatch({ hold = false } = {}) {
+async function buildMatch({ hold = false, biome = null } = {}) {
   // The outgoing match still owns pens, markers and aim helpers inside the shared
   // scene. Tear it down before building the next one or they pile up.
   if (match) {
@@ -69,7 +77,7 @@ async function buildMatch({ hold = false } = {}) {
   match = new Match(stage, { playerPen: ui.selectedPen, cpuPen: cpuId });
   match.attachAimHelpers(stage.scene);
   wireMatch(match, cpuId);
-  await match.newMatch((Math.random() * 1e9) | 0);
+  await match.newMatch(biome === null ? randomSeed() : seedForBiome(biome));
   if (hold) match.holdForLoadout();
   return match;
 }
@@ -228,11 +236,10 @@ ui.on('play', async () => {
   ui.showGame();
   // The arena is already built and on screen; if the chosen pen changed since
   // boot we need a fresh match, which is quick because the shaders are warm.
-  if (!match || match.playerSpecId !== ui.selectedPen) {
-    ui.showBoot('Setting the pens');
-    await buildMatch();
-    ui.hideBoot();
-  }
+  // Always leave the lava backdrop behind for the actual fight.
+  ui.showBoot('Setting the pens');
+  await buildMatch();
+  ui.hideBoot();
   match.beginPlay();
 });
 
@@ -249,7 +256,7 @@ ui.on('change', async () => {
   ui.hideResult();
   ui.showTitle();
   setShowcasePen(ui.selectedPen);
-  await buildMatch({ hold: true });
+  await buildMatch({ hold: true, biome: LOADOUT_BIOME });
 });
 
 // ----------------------------------------------------------------- loop ---
@@ -271,7 +278,7 @@ function frame(now) {
 (async function boot() {
   ui.showBoot('Carving the ledge');
   requestAnimationFrame(frame);
-  await buildMatch({ hold: true });
+  await buildMatch({ hold: true, biome: LOADOUT_BIOME });
   // Only take over the screen if nothing else has: building the first arena is
   // async, and whatever ran in the meantime gets to keep the display.
   if (match && match.state === STATE.LOADOUT) {

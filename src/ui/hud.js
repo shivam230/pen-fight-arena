@@ -39,7 +39,10 @@ export class UI {
       hero: $('hero'),
       heroBrand: $('hero-brand'),
       heroModel: $('hero-model'),
-      rail: $('pen-rail'),
+      carousel: $('pen-carousel'),
+      track: $('pen-track'),
+      prev: $('pen-prev'),
+      next: $('pen-next'),
       play: $('btn-play'),
 
       replay: $('replay'),
@@ -62,9 +65,11 @@ export class UI {
 
     this.handlers = {};
     this._pipCount = 2;
-    this._buildRail();
+    this.index = Math.max(0, PENS.findIndex((p) => p.id === this.selectedPen));
+    this._buildCarousel();
     this._wire();
     this._renderHero(false);
+    window.addEventListener('resize', () => this._layout());
   }
 
   on(evt, fn) { this.handlers[evt] = fn; return this; }
@@ -74,58 +79,152 @@ export class UI {
 
   // --------------------------------------------------------------- title ---
 
-  /** Short tile label: the model, not the brand — "045", "TRIMAX", "WOODY". */
+  /** Card label: the model, not the brand — "045", "TRIMAX", "FIBERPOINT". */
   static abbr(spec) {
     const words = spec.name.split(' ');
-    return (words.length > 1 ? words[words.length - 1] : words[0]).slice(0, 7);
+    return words.length > 1 ? words[words.length - 1] : words[0];
   }
 
-  _buildRail() {
+  _buildCarousel() {
+    const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
     const frag = document.createDocumentFragment();
-    PENS.forEach((spec) => {
-      const tile = document.createElement('button');
-      tile.type = 'button';
-      tile.className = 'pen-tile glass';
-      tile.setAttribute('role', 'radio');
-      tile.setAttribute('aria-checked', String(spec.id === this.selectedPen));
-      tile.setAttribute('aria-label', spec.name);
-      tile.dataset.id = spec.id;
 
-      // A colour swatch of the actual barrel — enough to recognise the pen at a
-      // glance without a second WebGL context or a bitmap.
-      const mark = document.createElement('span');
-      mark.className = 'tile-mark';
-      mark.style.background = `#${spec.body.color.toString(16).padStart(6, '0')}`;
-      mark.style.color = `#${spec.accent.toString(16).padStart(6, '0')}`;
+    this.cards = PENS.map((spec, i) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'pen-card';
+      card.setAttribute('role', 'radio');
+      card.setAttribute('aria-checked', String(i === this.index));
+      card.setAttribute('aria-label', spec.name);
+      card.dataset.id = spec.id;
 
-      const abbr = document.createElement('span');
-      abbr.className = 'tile-abbr';
-      abbr.textContent = UI.abbr(spec);
+      // A CSS-drawn pen silhouette: cheaper and sharper at any size than a bitmap,
+      // and it stays in sync with the catalog colours automatically.
+      const glyph = document.createElement('span');
+      glyph.className = 'pen-glyph';
+      glyph.style.setProperty('--body', hex(spec.body.color));
+      glyph.style.setProperty('--cap', hex(spec.cap.color));
+      glyph.style.setProperty('--tip', hex(spec.tip.color));
+      glyph.style.setProperty('--clip', hex(spec.clip.color));
 
-      tile.append(mark, abbr);
-      tile.addEventListener('click', () => this.selectPen(spec.id));
-      frag.appendChild(tile);
+      const label = document.createElement('b');
+      label.textContent = UI.abbr(spec);
+
+      card.append(glyph, label);
+      card.addEventListener('click', () => this.selectIndex(i));
+      frag.appendChild(card);
+      return card;
     });
-    this.el.rail.appendChild(frag);
+
+    this.el.track.appendChild(frag);
+    this._initDrag();
+    requestAnimationFrame(() => this._layout(false));
   }
 
-  selectPen(id, silent = false) {
-    if (id === this.selectedPen && !silent) return;
-    this.selectedPen = id;
-    localStorage.setItem(STORAGE_KEY, id);
-    this.el.rail.querySelectorAll('.pen-tile').forEach((t) => {
-      t.setAttribute('aria-checked', String(t.dataset.id === id));
+  /** Metrics come from the rendered card so CSS stays the single source of size. */
+  _metrics() {
+    const card = this.cards[0];
+    const w = card.offsetWidth || 74;
+    return { pitch: w + 34, w };
+  }
+
+  /** Signed distance from a to b on a ring of n — always the short way round. */
+  static ringDelta(a, b, n) {
+    let d = a - b;
+    d -= Math.round(d / n) * n;
+    return d;
+  }
+
+  /**
+   * Place every card relative to the centred one. Positions wrap around the ring,
+   * so the first and last pens still have neighbours either side instead of the
+   * strip dead-ending against an empty gap.
+   */
+  _layout(animate = true) {
+    if (!this.cards || !this.cards.length) return;
+    const n = this.cards.length;
+    const { pitch, w } = this._metrics();
+    const centre = this.el.carousel.clientWidth / 2;
+    const fractional = this.index - (this._dragOffset || 0) / pitch;
+    const ease = 'transform 380ms cubic-bezier(0.16, 1, 0.3, 1), opacity 300ms ease';
+
+    this.cards.forEach((card, i) => {
+      const d = UI.ringDelta(i, fractional, n);
+      const ad = Math.abs(d);
+      const visible = ad < 3.2;
+      card.style.transition = this._dragging || !animate ? 'none' : ease;
+      card.style.visibility = visible ? 'visible' : 'hidden';
+      if (!visible) return;
+      const scale = Math.max(0.46, 1 - ad * 0.26);
+      const x = centre + d * pitch - w / 2;
+      card.style.transform = `translateX(${x.toFixed(1)}px) scale(${scale.toFixed(3)})`;
+      card.style.opacity = Math.max(0.18, 1 - ad * 0.36).toFixed(2);
+      card.style.zIndex = String(20 - Math.round(ad * 4));
     });
-    // Scroll the rail by hand. scrollIntoView() walks every scrollable ancestor,
-    // including the document, and will happily shove the whole fixed layout sideways.
-    const tile = this.el.rail.querySelector(`[data-id="${id}"]`);
-    if (tile) {
-      const rail = this.el.rail;
-      const target = tile.offsetLeft - (rail.clientWidth - tile.offsetWidth) / 2;
-      rail.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
-    }
-    this._renderHero(true);
-    if (!silent) this._fire('select', id);
+  }
+
+  _initDrag() {
+    const el = this.el.carousel;
+    let startX = 0, startIndex = 0, active = false, moved = 0;
+
+    const down = (e) => {
+      active = true;
+      moved = 0;
+      startX = e.clientX;
+      startIndex = this.index;
+      this._dragging = true;
+      el.classList.add('dragging');
+      el.setPointerCapture?.(e.pointerId);
+    };
+    const move = (e) => {
+      if (!active) return;
+      this._dragOffset = e.clientX - startX;
+      moved = Math.abs(this._dragOffset);
+      this._layout(false);
+    };
+    const up = () => {
+      if (!active) return;
+      active = false;
+      this._dragging = false;
+      el.classList.remove('dragging');
+      const { pitch } = this._metrics();
+      const shift = Math.round(-(this._dragOffset || 0) / pitch);
+      this._dragOffset = 0;
+      const next = startIndex + shift;
+      if (((next % PENS.length) + PENS.length) % PENS.length !== this.index) {
+        this.selectIndex(next);
+      } else {
+        this._layout(true);
+      }
+    };
+
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    // A drag that crossed a card must not also fire that card's click.
+    el.addEventListener('click', (e) => {
+      if (moved > 8) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+  }
+
+  selectIndex(i, silent = false) {
+    // Wraps: stepping past either end rolls round to the other side.
+    const next = ((i % PENS.length) + PENS.length) % PENS.length;
+    const changed = next !== this.index;
+    this.index = next;
+    this.selectedPen = PENS[next].id;
+    localStorage.setItem(STORAGE_KEY, this.selectedPen);
+    this.cards.forEach((c, k) => c.setAttribute('aria-checked', String(k === next)));
+    this._layout(true);
+    this._renderHero(changed);
+    if (changed && !silent) this._fire('select', this.selectedPen);
+  }
+
+  /** Kept for callers that know an id rather than a position. */
+  selectPen(id, silent = false) {
+    const i = PENS.findIndex((p) => p.id === id);
+    if (i >= 0) this.selectIndex(i, silent);
   }
 
   _renderHero(animate) {
@@ -143,6 +242,8 @@ export class UI {
   }
 
   _wire() {
+    this.el.prev.addEventListener('click', () => this.selectIndex(this.index - 1));
+    this.el.next.addEventListener('click', () => this.selectIndex(this.index + 1));
     this.el.play.addEventListener('click', () => this._fire('play'));
     this.el.rematch.addEventListener('click', () => this._fire('rematch'));
     this.el.change.addEventListener('click', () => this._fire('change'));
@@ -160,6 +261,9 @@ export class UI {
     this.el.title.hidden = false;
     this.el.hud.hidden = true;
     this.el.result.hidden = true;
+    // Widths measure as 0 while the screen is display:none, so re-run the layout
+    // once it is actually on screen.
+    requestAnimationFrame(() => this._layout(false));
   }
 
   showGame() {

@@ -11,6 +11,13 @@
  * screen stays clear because that is where the player drags to aim.
  */
 
+/* Display face for the wordmark only — heavy, condensed, poster-weight. */
+@font-face {
+  font-family: 'Anton';
+  src: url('./fonts/anton-400.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
 @font-face {
   font-family: 'Rajdhani';
   src: url('./fonts/rajdhani-500.woff2') format('woff2');
@@ -36,8 +43,12 @@
   --ink-faint: rgba(228, 240, 252, 0.40);
   --bg: #05070a;
 
-  --accent: #ffc53d;
-  --accent-hot: #ff4d3d;
+  /* Teal reads as the "friendly/interactive" colour and holds up against the
+     lava reds behind it; #ff4655 is the hostile counterpart. Gold lost both
+     fights against an orange background. */
+  --accent: #24e8c6;
+  --accent-dim: rgba(36, 232, 198, 0.55);
+  --accent-hot: #ff4655;
   --safe: #4df2a1;
 
   /* --- liquid glass ------------------------------------------------------ */
@@ -61,6 +72,7 @@
 
   --font: 'Rajdhani', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
           Roboto, sans-serif;
+  --font-display: 'Anton', 'Rajdhani', Impact, sans-serif;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -393,26 +405,81 @@ body {
 
 .wordmark {
   justify-self: center;
-  text-align: center;
-  line-height: 0.82;
-  filter: drop-shadow(0 6px 26px rgba(0, 0, 0, 0.7));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
 }
-.wordmark span {
-  display: block;
-  font-size: clamp(38px, 13vw, 62px);
-  font-weight: 700;
-  letter-spacing: 0.10em;
-  text-indent: 0.10em;
+
+.wm-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.40em;
+  text-indent: 0.40em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.85;
 }
-.wordmark span:first-child { color: var(--ink); }
-.wordmark span:last-child {
-  background: linear-gradient(180deg, var(--accent) 8%, var(--accent-hot) 96%);
+.wm-kicker i {
+  width: 24px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent));
+}
+.wm-kicker i:last-child { transform: scaleX(-1); }
+
+.wm-lock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Anton sets very tall caps on a tight body; the two lines collide below ~1.0. */
+  line-height: 1.0;
+}
+
+/* "PEN" as an outline, "FIGHT" as the solid mass — the weight contrast is what
+   makes a two-word title read as a logo instead of a heading. */
+.wm-pen {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 7vw, 36px);
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  text-transform: uppercase;
+  color: transparent;
+  -webkit-text-stroke: 1.4px rgba(255, 255, 255, 0.9);
+  paint-order: stroke fill;
+  margin-bottom: 2px;
+}
+
+.wm-fight {
+  position: relative;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 19vw, 96px);
+  letter-spacing: 0.012em;
+  text-transform: uppercase;
+  background: linear-gradient(178deg, #ffffff 4%, #ffd2cf 34%, var(--accent-hot) 96%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* Chamfered corners — the angular cut that reads as tactical/FPS. */
+  clip-path: polygon(0 13%, 5% 0, 100% 0, 100% 87%, 95% 100%, 0 100%);
+  filter: drop-shadow(0 10px 32px rgba(255, 70, 85, 0.45));
+}
+/* Offset stroke echo behind the letters. */
+.wm-fight::before {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  background: none;
+  color: transparent;
+  -webkit-text-stroke: 1.2px rgba(255, 70, 85, 0.5);
+  transform: translate(4px, 5px);
 }
 
-/* --- the hero name sits over the 3D render, Valorant-style ------------- */
 .hero {
   align-self: end;
   justify-self: center;
@@ -447,100 +514,232 @@ body {
 
 .title-foot { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
-/* --- pen rail: glass tiles, one per pen -------------------------------- */
-.pen-rail {
-  min-width: 0;
-  display: flex;
-  gap: 9px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding: 3px 2px 5px;
-  margin: 0 -14px;
-  padding-left: 14px;
-  padding-right: 14px;
-  scrollbar-width: none;
+/* --- pen carousel ------------------------------------------------------
+   The selected pen sits dead centre at full size; neighbours shrink and fade
+   away from it, so the eye is told exactly what is equipped. Swipe or tap. */
+.carousel {
+  position: relative;
+  height: 112px;
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: grab;
+  /* Fade the ends so cards leave frame rather than being sliced off. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
 }
-.pen-rail::-webkit-scrollbar { display: none; }
+.carousel.dragging { cursor: grabbing; }
 
-.pen-tile {
-  flex: 0 0 auto;
-  width: 62px;
-  height: 62px;
-  scroll-snap-align: center;
+/* Cards are absolutely positioned rather than laid out in a row: it lets the
+   strip wrap around (so there are always neighbours on both sides, even on the
+   first pen) and lets a long label overhang a narrow card. */
+.carousel-track {
+  position: absolute;
+  inset: 0;
+  will-change: contents;
+}
+
+.pen-card {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: var(--card-w, 74px);
+  height: 92px;
+  margin-top: -46px;
   border: 0;
-  border-radius: 18px;
-  cursor: pointer;
+  padding: 0;
+  background: none;
   font: inherit;
   color: var(--ink-dim);
-  display: grid;
-  place-items: center;
-  gap: 0;
-  padding: 6px 4px;
-  transition: transform 320ms var(--ease), color 240ms ease,
-              box-shadow 320ms var(--ease);
-}
-.pen-tile .tile-mark {
-  width: 5px;
-  height: 26px;
-  border-radius: 3px;
-  transition: height 320ms var(--ease), box-shadow 320ms var(--ease);
-}
-.pen-tile .tile-abbr {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  margin-top: 5px;
-}
-.pen-tile[aria-checked='true'] {
-  color: var(--ink);
-  transform: translateY(-6px) scale(1.07);
-  box-shadow: var(--glass-edge), 0 16px 40px rgba(0, 0, 0, 0.5),
-              0 0 0 1.5px var(--accent) inset;
-}
-.pen-tile[aria-checked='true'] .tile-mark {
-  height: 32px;
-  box-shadow: 0 0 14px currentColor;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 6px;
+  transform-origin: 50% 50%;
+  transition: color 300ms var(--ease);
 }
 
-.cta {
-  min-height: 62px;
-  border: 0;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #ffd45c 0%, #f79420 100%);
-  color: #1b1305;
-  font: inherit;
+/* Pen silhouette, drawn in CSS: cap, barrel, then a cut point for the tip. */
+.pen-glyph {
+  position: relative;
+  width: 13px;
+  height: 54px;
+  border-radius: 6px 6px 1px 1px;
+  clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+  background: linear-gradient(
+    180deg,
+    var(--cap) 0 28%,
+    var(--body) 28% 84%,
+    var(--tip) 84% 100%
+  );
+  box-shadow: inset -3.5px 0 7px rgba(0, 0, 0, 0.5),
+              inset 3px 0 5px rgba(255, 255, 255, 0.30);
+  transition: filter 300ms var(--ease);
+}
+/* The pocket clip. */
+.pen-glyph::after {
+  content: '';
+  position: absolute;
+  top: 16%;
+  right: -3px;
+  width: 3px;
+  height: 24%;
+  border-radius: 2px;
+  background: var(--clip);
+}
+
+.pen-card b {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 124px;
+  text-align: center;
+  font-size: 10px;
   font-weight: 700;
-  font-size: 20px;
-  letter-spacing: 0.20em;
-  text-indent: 0.20em;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pen-card[aria-checked='true'] { color: var(--ink); }
+.pen-card[aria-checked='true'] .pen-glyph {
+  filter: drop-shadow(0 0 12px var(--accent-dim)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.6));
+}
+/* Corner brackets on the equipped card — the loadout-screen idiom. */
+.pen-card[aria-checked='true']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  margin-left: -30px;
+  width: 60px;
+  height: 66px;
+  border: 1.5px solid var(--accent);
+  border-radius: 3px;
+  clip-path: polygon(
+    0 0, 34% 0, 34% 5%, 5% 5%, 5% 26%, 0 26%,
+    0 74%, 5% 74%, 5% 95%, 34% 95%, 34% 100%, 0 100%,
+    100% 100%, 66% 100%, 66% 95%, 95% 95%, 95% 74%, 100% 74%,
+    100% 26%, 95% 26%, 95% 5%, 66% 5%, 66% 0, 100% 0
+  );
+  pointer-events: none;
+  animation: bracket-in 340ms var(--ease);
+}
+@keyframes bracket-in {
+  from { opacity: 0; transform: scale(1.18); }
+  to { opacity: 1; transform: none; }
+}
+
+.carousel-arrow {
+  position: absolute;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  margin-top: -17px;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 200ms ease;
+}
+.carousel-arrow:active { opacity: 1; }
+.carousel-arrow::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  border-top: 2px solid var(--ink);
+  border-right: 2px solid var(--ink);
+}
+.carousel-arrow--prev { left: 2px; }
+.carousel-arrow--prev::before { transform: rotate(-135deg); }
+.carousel-arrow--next { right: 2px; }
+.carousel-arrow--next::before { transform: rotate(45deg); }
+
+/* Chamfered, glass, teal-lit. clip-path removes the box-shadow, so the outer
+   glow is a drop-shadow filter instead — that one follows the clipped shape. */
+.cta {
+  position: relative;
+  min-height: 60px;
+  border: 0;
+  padding: 0;
+  background: linear-gradient(102deg,
+    rgba(36, 232, 198, 0.20) 0%,
+    rgba(36, 232, 198, 0.07) 46%,
+    rgba(36, 232, 198, 0.14) 100%);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  color: var(--accent);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.30em;
+  text-indent: 0.30em;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset,
-              0 14px 38px rgba(247, 148, 32, 0.34);
-  transition: transform 180ms var(--ease), filter 180ms ease;
+  clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px),
+                     calc(100% - 15px) 100%, 0 100%, 0 15px);
+  box-shadow: inset 0 0 0 1.5px rgba(36, 232, 198, 0.62),
+              inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  filter: drop-shadow(0 8px 26px rgba(36, 232, 198, 0.26));
+  transition: transform 170ms var(--ease), filter 200ms ease, color 200ms ease;
+  overflow: hidden;
 }
-.cta:active { transform: scale(0.972); filter: brightness(1.08); }
+.cta span { position: relative; z-index: 1; }
+/* Slow specular sweep so the button reads as powered, not painted. */
+.cta::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  left: -60%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.30), transparent);
+  animation: cta-sweep 3.6s ease-in-out infinite;
+}
+@keyframes cta-sweep {
+  0%, 62% { left: -60%; }
+  100% { left: 130%; }
+}
+.cta:active {
+  transform: scale(0.978);
+  color: #04140f;
+  background: linear-gradient(180deg, #46f5d6, #17c5a6);
+  filter: drop-shadow(0 6px 22px rgba(36, 232, 198, 0.5));
+}
 .cta--sm {
   min-height: 52px;
   font-size: 16px;
-  letter-spacing: 0.16em;
-  text-indent: 0.16em;
-  padding: 0 24px;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  padding: 0 22px;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px),
+                     calc(100% - 12px) 100%, 0 100%, 0 12px);
 }
 
 .ghost {
-  min-height: 52px;
+  min-height: 50px;
   padding: 0 24px;
   border: 0;
-  border-radius: 16px;
   color: var(--ink-dim);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.20em;
   text-transform: uppercase;
   cursor: pointer;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px),
+                     calc(100% - 11px) 100%, 0 100%, 0 11px);
 }
 
 .credit {
@@ -724,12 +923,15 @@ body {
 /* Landscape phones: short viewport, so compress every band of chrome. */
 @media (orientation: landscape) and (max-height: 520px) {
   #title { grid-template-rows: auto 1fr auto; }
-  .wordmark span { font-size: 30px; }
+  .wm-fight { font-size: 40px; }
+  .wm-pen { font-size: 17px; }
   .hero-model { font-size: 26px; }
   .hero-brand { font-size: 11px; }
   .title-foot { flex-direction: row; align-items: center; gap: 12px; }
-  .pen-rail { flex: 1; margin: 0; padding: 3px 0 5px; }
-  .pen-tile { width: 52px; height: 52px; border-radius: 15px; }
+  .carousel { flex: 1; height: 86px; }
+  .pen-card { height: 78px; --card-w: 62px; }
+  .pen-glyph { height: 42px; width: 11px; }
+  .wm-kicker { display: none; }
   .cta { min-height: 52px; font-size: 16px; padding: 0 26px; }
   /* Credit gets its own strip so it never sits under the pen rail. */
   .title-foot { padding-bottom: 14px; }
