@@ -169,12 +169,13 @@ export class Stage {
   }
 
   /** Load a biome: sky, IBL, fog, lights, weather, grade. */
-  setBiome(biome, seed) {
+  async setBiome(biome, seed) {
     this.biome = biome;
 
     if (this._bg) this._bg.dispose();
     if (this._envMap) this._envMap.dispose();
-    const { background, envMap } = buildSkyEnvironment(this.renderer, biome.sky, seed);
+    const { background, envMap } =
+      await buildSkyEnvironment(this.renderer, biome.sky, seed);
     this.scene.background = background;
     this.scene.environment = envMap;
     // The IBL fills shadows beautifully but at full strength it flattens the

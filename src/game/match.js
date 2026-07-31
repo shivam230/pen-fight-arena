@@ -117,7 +117,7 @@ export class Match {
     this.roundNumber = 0;
 
     this.world.reset();
-    this.stage.setBiome(this.biome, seed);
+    await this.stage.setBiome(this.biome, seed);
     this.arena = buildArena(seed, this.biome, this.world);
     this.stage.setArena(this.arena);
     this._baseBoundary = this.arena.boundary;

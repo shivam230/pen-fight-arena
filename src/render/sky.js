@@ -166,13 +166,67 @@ function paintSky(sky, seed) {
 }
 
 /**
+ * Cross-fade the left and right edges of an equirectangular image into each other.
+ *
+ * Text-to-image models almost never produce a seamless 360° wrap, and the join
+ * lands as a hard vertical line in the background AND as a bright streak in the
+ * reflections, because this same texture feeds the IBL. Blending a strip either
+ * side of the wrap hides both.
+ */
+function blendSeam(image, blendFraction = 0.04) {
+  const w = image.width, h = image.height;
+  const blend = Math.max(1, Math.round(w * blendFraction));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0);
+
+  const head = ctx.getImageData(0, 0, blend, h);
+  const tail = ctx.getImageData(w - blend, 0, blend, h);
+  const a = head.data, b = tail.data;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < blend; x++) {
+      const i = (y * blend + x) * 4;
+      // t goes 0→1 across the strip: at the very seam the two sides are equal.
+      const t = 0.5 + 0.5 * (x / blend);
+      for (let k = 0; k < 3; k++) {
+        const av = a[i + k], bv = b[i + k];
+        a[i + k] = av * t + bv * (1 - t);
+        b[i + k] = bv * t + av * (1 - t);
+      }
+    }
+  }
+  ctx.putImageData(head, 0, 0);
+  ctx.putImageData(tail, w - blend, 0);
+  return cv;
+}
+
+/**
  * Build the background texture + PMREM environment for a biome.
+ *
+ * If the biome names a panorama (`sky.image`) it is used for both the visible sky
+ * and the image-based lighting, so the pens are genuinely lit by and reflect the
+ * artwork rather than sitting in front of it. Otherwise the sky is painted
+ * procedurally, which stays the default and the fallback.
+ *
  * Call once per match, on the loading screen — `fromEquirectangular` does a GGX
  * convolution on the GPU (~5-15ms) and must not run inside the frame loop.
  */
-export function buildSkyEnvironment(renderer, sky, seed) {
-  const canvas = paintSky(sky, seed);
-  const texture = new THREE.CanvasTexture(canvas);
+export async function buildSkyEnvironment(renderer, sky, seed) {
+  let source;
+  if (sky.image) {
+    try {
+      const img = await new THREE.ImageLoader().loadAsync(sky.image);
+      source = sky.seamBlend === 0 ? img : blendSeam(img, sky.seamBlend ?? 0.04);
+    } catch {
+      // A missing or broken panorama must never cost the player a match.
+      source = paintSky(sky, seed);
+    }
+  } else {
+    source = paintSky(sky, seed);
+  }
+
+  const texture = new THREE.CanvasTexture(source);
   texture.mapping = THREE.EquirectangularReflectionMapping;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
