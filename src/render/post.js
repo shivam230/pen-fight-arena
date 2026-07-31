@@ -224,10 +224,13 @@ export class PostFX {
   }
 
   setQuality(tier) {
-    // 'high' | 'medium' | 'low'
+    // 'high' | 'medium' | 'low'.
+    // Bloom stays on at every tier: it is four small half-res passes, and without
+    // it the image loses all of its highlight range and reads as untextured.
+    // Grain and chromatic aberration are the ones that actually get dropped.
     this.compositeMat.uniforms.uGrain.value = tier === 'low' ? 0.0 : 0.016;
     this.compositeMat.uniforms.uAberration.value = tier === 'low' ? 0 : 0.006;
-    this._skipBloom = tier === 'low';
+    this._skipBloom = false;
   }
 
   _draw(material, target) {

@@ -56,6 +56,43 @@ function sprite(kind) {
   return tex;
 }
 
+let beamTex = null;
+/**
+ * Soft vertical shaft: brightest at the base, feathered to nothing at the top and
+ * at both sides. The two gradients are multiplied via `destination-in` so the
+ * alpha really is the product of both — painting them additively left hard edges
+ * that bloom turned into a white slab.
+ */
+function beamTexture() {
+  if (beamTex) return beamTex;
+  const W = 64, H = 128;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+
+  const across = ctx.createLinearGradient(0, 0, W, 0);
+  across.addColorStop(0.00, 'rgba(255,255,255,0)');
+  across.addColorStop(0.34, 'rgba(255,255,255,0.55)');
+  across.addColorStop(0.50, 'rgba(255,255,255,1)');
+  across.addColorStop(0.66, 'rgba(255,255,255,0.55)');
+  across.addColorStop(1.00, 'rgba(255,255,255,0)');
+  ctx.fillStyle = across;
+  ctx.fillRect(0, 0, W, H);
+
+  const up = ctx.createLinearGradient(0, H, 0, 0);
+  up.addColorStop(0.00, 'rgba(0,0,0,1)');
+  up.addColorStop(0.35, 'rgba(0,0,0,0.45)');
+  up.addColorStop(1.00, 'rgba(0,0,0,0)');
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.fillStyle = up;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+
+  beamTex = new THREE.CanvasTexture(cv);
+  beamTex.colorSpace = THREE.SRGBColorSpace;
+  return beamTex;
+}
+
 const POINT_VERT = /* glsl */`
 attribute float aSize;
 attribute float aAlpha;
@@ -282,6 +319,56 @@ export class ImpactFX {
       this.rings.push({ mesh, mat, t: 0, life: 0, scale: 1 });
     }
     this._ringGeo = ringGeo;
+
+    // Knockout beacon. A pen dropping over the lip leaves the frame in a few
+    // frames; this stays behind and says "it happened HERE, and it was theirs".
+    const beamGeo = new THREE.PlaneGeometry(1, 1);
+    beamGeo.translate(0, 0.5, 0);
+    const beamMat = new THREE.MeshBasicMaterial({
+      map: beamTexture(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      // Depth-tested: an un-tested beam draws straight through the plateau and
+      // reads as a bug rather than a marker.
+      depthTest: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    this.beam = new THREE.Mesh(beamGeo, beamMat);
+    this.beam.visible = false;
+    this.beam.renderOrder = 8;
+    scene.add(this.beam);
+    this._beamLife = 0;
+    this._beamGeo = beamGeo;
+  }
+
+  /**
+   * Mark where a pen went over, in that player's colour.
+   * @param {number} x @param {number} z
+   * @param {number} colorHex owner colour
+   */
+  knockout(x, z, colorHex) {
+    const c = new THREE.Color().setHex(colorHex, THREE.SRGBColorSpace);
+    this.beam.position.set(x, 0.002, z);
+    this.beam.scale.set(0.085, 0.34, 1);
+    this.beam.material.color.copy(c);
+    this.beam.material.opacity = 0.55;
+    this.beam.visible = true;
+    this._beamLife = 1.7;
+
+    this._ring(x, z, 0.16, 0.95);
+    // A puff of the owner's colour thrown upward, so the eye is pulled to the spot.
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.18 + Math.random() * 0.5;
+      this._emit(
+        x, 0.006, z,
+        Math.cos(a) * sp, 0.8 + Math.random() * 1.9, Math.sin(a) * sp,
+        0.006 + Math.random() * 0.014, 0.6 + Math.random() * 0.6,
+        c.r * 1.5, c.g * 1.5, c.b * 1.5,
+      );
+    }
   }
 
   _emit(x, y, z, vx, vy, vz, size, life, r, g, b) {
@@ -408,7 +495,23 @@ export class ImpactFX {
 
   setProjectionScale(v) { this.cloud.mat.uniforms.uScale.value = v; }
 
-  update(dt) {
+  update(dt, camera) {
+    if (this._beamLife > 0) {
+      this._beamLife -= dt;
+      const k = Math.max(0, this._beamLife / 1.7);
+      this.beam.material.opacity = k * k * 0.55;
+      this.beam.scale.y = 0.34 + (1 - k) * 0.16;
+      if (camera) {
+        // Billboard around Y only, so the beam always faces the camera but stays
+        // vertical rather than tipping over with the view.
+        this.beam.rotation.y = Math.atan2(
+          camera.position.x - this.beam.position.x,
+          camera.position.z - this.beam.position.z,
+        );
+      }
+      if (this._beamLife <= 0) this.beam.visible = false;
+    }
+
     const c = this.cloud;
     for (let i = 0; i < MAX_DEBRIS; i++) {
       if (c.life[i] <= 0) continue;
@@ -443,6 +546,10 @@ export class ImpactFX {
 
   dispose() {
     this.scene.remove(this.cloud.points);
+    this.scene.remove(this.beam);
+    this.beam.material.map?.dispose();
+    this.beam.material.dispose();
+    this._beamGeo.dispose();
     this.cloud.dispose();
     this.rings.forEach((r) => {
       this.scene.remove(r.mesh);

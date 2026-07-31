@@ -44,20 +44,20 @@ export const BIOMES = [
     surface: { friction: 1.14, label: 'Rough basalt' },
     exposure: 1.0,
     sky: {
-      zenith: 0x140a12, upper: 0x3a1420, horizon: 0x8f3418,
-      lower: 0xd4661f, ground: 0x60220e,
-      haze: 0xff7a2a, hazeStrength: 0.30,
-      cloud: 0.7, cloudCut: 0.24, cloudColor: 0x63303a,
+      zenith: 0x0a0610, upper: 0x2c1024, horizon: 0x9c3a15,
+      lower: 0xe8761c, ground: 0x76290f,
+      haze: 0xff8a34, hazeStrength: 0.34,
+      cloud: 0.9, cloudCut: 0.18, cloudColor: 0x8a4230,
       sunAz: 0.62, sunEl: 0.26, sunColor: 0xffb055, sunDisc: true,
     },
-    sun: { color: 0xffa24a, intensity: 2.2 },
-    hemi: { sky: 0xff7a30, ground: 0x2a1008, intensity: 0.85 },
+    sun: { color: 0xffc07a, intensity: 3.0 },
+    hemi: { sky: 0xffa060, ground: 0x4a2418, intensity: 1.35 },
     fog: { color: 0x4a1c12, near: 14, far: 250 },
     ground: {
-      low: 0x241f1d, mid: 0x413935, high: 0x60534b, accent: 0xff5410,
+      low: 0x4a403a, mid: 0x6b5c52, high: 0x8b786b, accent: 0xff5410,
       roughness: 0.95, glowCracks: true,
     },
-    cliff: { low: 0x151110, high: 0x453a34, roughness: 0.96 },
+    cliff: { low: 0x2a2220, high: 0x5d4c44, roughness: 0.96 },
     peaks: {
       frequency: 0.013,
       base: 0x241a17, snowLine: 2.0, snow: 0x000000,
@@ -87,7 +87,7 @@ export const BIOMES = [
     hemi: { sky: 0x7d9dbb, ground: 0x232a35, intensity: 1.9 },
     fog: { color: 0x2b3746, near: 16, far: 270 },
     ground: {
-      low: 0x4a525c, mid: 0x666f7a, high: 0x828d9a, accent: 0xb8cee6,
+      low: 0x59626d, mid: 0x767f8b, high: 0x939ead, accent: 0xc2d6ec,
       roughness: 0.32, wet: true,
     },
     cliff: { low: 0x2b3038, high: 0x525a66, roughness: 0.5 },
@@ -152,8 +152,8 @@ export const BIOMES = [
     hemi: { sky: 0x8fd0f0, ground: 0x2b4358, intensity: 0.75 },
     fog: { color: 0x9fc9de, near: 18, far: 310 },
     ground: {
-      low: 0x5f93ad, mid: 0x9ec9dc, high: 0xd6ecf6, accent: 0xffffff,
-      roughness: 0.34, ice: true,
+      low: 0x4a7b95, mid: 0x7fb0c8, high: 0xa9d2e4, accent: 0xe8f6ff,
+      roughness: 0.38, ice: true,
     },
     cliff: { low: 0x2f5f7d, high: 0x7fb4cc, roughness: 0.3 },
     peaks: {

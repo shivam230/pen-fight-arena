@@ -80,6 +80,8 @@ export class Match {
     this._turnInRound = 0;
     this._flickerThisTurn = null;
     this._selfWasSafe = true;
+    this._slowmo = 0;
+    this._knockPoint = null;
   }
 
   on(evt, fn) {
@@ -264,6 +266,8 @@ export class Match {
   }
 
   _beginTurn() {
+    this._knockPoint = null;
+    this._slowmo = 0;
     this.world.drainEvents();
     this.ai.sync();
     if (this._turnOwner === 'player') {
@@ -393,7 +397,14 @@ export class Match {
     if (this.state !== STATE.LOADING) this._syncVisuals(dt);
   }
 
-  _stepPhysics(dt) {
+  _stepPhysics(realDt) {
+    // Slow motion is applied to the simulation only; the camera and UI keep
+    // running at real time so the transition doesn't feel like a stutter.
+    let dt = realDt;
+    if (this._slowmo > 0) {
+      this._slowmo -= realDt;
+      dt = realDt * 0.32;
+    }
     this.world.step(dt);
     this._handleEvents();
     this.recorder.capture(dt);
@@ -407,11 +418,11 @@ export class Match {
     }
     audio.setSlide(Math.min(1, fastest / 2.4), this._panFor(fx));
 
-    // Camera: chase the action, or swing out to watch a pen go over.
+    // Camera: chase the action, or push in on the spot where a pen went over.
     const falling = this.world.pens.find((p) => p.falling);
-    if (falling) {
-      this.stage.setFallView({ x: falling.x, z: falling.y },
-        this.arena.extent * this._shrink);
+    if (falling || this._knockPoint) {
+      const at = this._knockPoint || { x: falling.x, z: falling.y };
+      this.stage.setKnockoutView(at, this.arena.extent * this._shrink);
     } else {
       const lead = fastest > 0.05
         ? this.world.pens.find((p) => p.speed() === fastest)
@@ -449,10 +460,21 @@ export class Match {
         case 'fall': {
           audio.fall(this._panFor(e.x));
           this.stage.impactFX.fallPuff(e.x, e.y);
-          this.stage.shake(0.012);
+          this.stage.impactFX.knockout(e.x, e.y,
+            e.pen.owner === 'player' ? 0x24e8c6 : 0xff4655);
+          this.stage.shake(0.02);
           this.recorder.noteFall(e.pen);
           if (e.pen === this._flickerThisTurn) this._selfWasSafe = false;
-          this.emit('falling', { owner: e.pen.owner });
+          // Drop into slow motion for the moment of the knockout. At full speed a
+          // pen crosses the lip in about three frames, which is why it was
+          // impossible to tell whose went over.
+          this._slowmo = 1.15;
+          this._knockPoint = { x: e.x, z: e.y };
+          this.emit('knockout', {
+            owner: e.pen.owner,
+            pen: e.pen.spec.name,
+            mine: e.pen.owner === 'player',
+          });
           break;
         }
         default:
@@ -625,6 +647,9 @@ export class Match {
       g.rotation.z = pen.tumble;
 
       if (pen.falling) {
+        // Once it is well below the lip it is off-camera anyway; hiding it keeps
+        // the beacon as the single thing marking the spot.
+        g.visible = pen.height < 0.55;
         v.shadow.visible = false;
         v.marker.visible = false;
       } else {

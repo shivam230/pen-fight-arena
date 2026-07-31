@@ -52,16 +52,21 @@
   --safe: #4df2a1;
 
   /* --- liquid glass ------------------------------------------------------ */
+  /* A SMOKED lens, not a clear one. All the type on these panels is white, and a
+     clear glass panel over a bright arena (ice, desert, monsoon sky) went almost
+     white and swallowed the text whole. Darkening the material keeps contrast
+     constant whatever is behind it, and still reads as glass because the blur,
+     saturation boost and edge highlight are all still doing their work. */
   --glass-tint: linear-gradient(
     177deg,
-    rgba(255, 255, 255, 0.155) 0%,
-    rgba(255, 255, 255, 0.075) 42%,
-    rgba(255, 255, 255, 0.035) 100%
+    rgba(10, 14, 20, 0.60) 0%,
+    rgba(10, 14, 20, 0.44) 46%,
+    rgba(10, 14, 20, 0.52) 100%
   );
-  --glass-blur: blur(26px) saturate(185%) brightness(1.06);
-  --glass-edge: 0 1px 0 0 rgba(255, 255, 255, 0.34) inset,
-                0 -1px 0 0 rgba(255, 255, 255, 0.07) inset,
-                0 0 0 0.5px rgba(255, 255, 255, 0.20) inset;
+  --glass-blur: blur(24px) saturate(180%);
+  --glass-edge: 0 1px 0 0 rgba(255, 255, 255, 0.30) inset,
+                0 -1px 0 0 rgba(255, 255, 255, 0.06) inset,
+                0 0 0 1px rgba(255, 255, 255, 0.14) inset;
   --glass-drop: 0 14px 44px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
 
   --pad: 16px;
@@ -106,14 +111,28 @@ body {
   touch-action: none;
 }
 
-/* The reusable lens. Everything that floats over the 3D scene wears this. */
+/*
+ * The reusable lens. Everything that floats over the 3D scene wears this, and it
+ * is CUT rather than rounded — the same chamfer as the Fight button, so the whole
+ * interface reads as one system.
+ *
+ * clip-path throws away outer box-shadows, so the lift comes from a drop-shadow
+ * filter (which does follow the clipped outline) while the inset edge highlight
+ * still works normally.
+ */
 .glass {
   position: relative;
+  --chamfer: 12px;
   background: var(--glass-tint);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-edge), var(--glass-drop);
-  border-radius: 20px;
+  box-shadow: var(--glass-edge);
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.42));
+  clip-path: polygon(
+    var(--chamfer) 0, 100% 0,
+    100% calc(100% - var(--chamfer)), calc(100% - var(--chamfer)) 100%,
+    0 100%, 0 var(--chamfer)
+  );
   isolation: isolate;
 }
 /* Specular sweep — the highlight that sells it as a curved piece of glass. */
@@ -121,16 +140,15 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(
     112deg,
-    rgba(255, 255, 255, 0.20) 0%,
-    rgba(255, 255, 255, 0.03) 26%,
-    transparent 52%,
-    rgba(255, 255, 255, 0.06) 88%
+    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.02) 28%,
+    transparent 55%,
+    rgba(255, 255, 255, 0.05) 90%
   );
-  mix-blend-mode: overlay;
+  mix-blend-mode: soft-light;
   z-index: -1;
 }
 
@@ -164,7 +182,7 @@ body {
   min-width: 0;
   align-items: flex-start;
   padding: 7px 11px 8px;
-  border-radius: 14px;
+  --chamfer: 10px;
   justify-self: start;
   max-width: 100%;
 }
@@ -200,8 +218,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 13px;
-  border-radius: 999px;
+  padding: 6px 14px;
+  --chamfer: 9px;
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.13em;
@@ -237,7 +255,7 @@ body {
 .toast {
   width: 100%;
   padding: 12px 15px;
-  border-radius: 16px;
+  --chamfer: 12px;
   animation: toast-in 380ms var(--ease);
   text-align: left;
 }
@@ -259,6 +277,61 @@ body {
 }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 
+/* --------------------------- knockout call --------------------------- */
+
+.knockout {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.knockout.on { opacity: 1; }
+
+.knockout-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 30px;
+  --chamfer: 15px;
+  background: linear-gradient(180deg, rgba(10, 14, 18, 0.68), rgba(10, 14, 18, 0.42));
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  clip-path: polygon(
+    var(--chamfer) 0, 100% 0,
+    100% calc(100% - var(--chamfer)), calc(100% - var(--chamfer)) 100%,
+    0 100%, 0 var(--chamfer)
+  );
+  box-shadow: inset 0 0 0 1.5px var(--knock-colour, var(--accent-hot)),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.knockout.on .knockout-card { animation: knock-in 420ms var(--ease); }
+@keyframes knock-in {
+  0% { opacity: 0; transform: scale(0.82); }
+  60% { transform: scale(1.04); }
+  100% { opacity: 1; transform: none; }
+}
+.knockout-tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  text-transform: uppercase;
+  color: var(--knock-colour, var(--accent-hot));
+}
+.knockout-card strong {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
 /* ---------------------------- bottom bar ---------------------------- */
 
 .hud-bottom {
@@ -275,7 +348,7 @@ body {
   align-items: center;
   gap: 1px;
   padding: 10px 22px;
-  border-radius: 17px;
+  --chamfer: 13px;
   transition: opacity 300ms var(--ease), transform 300ms var(--ease);
 }
 .turn-banner strong {
@@ -294,8 +367,8 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 14px;
-  border-radius: 999px;
+  padding: 9px 16px;
+  --chamfer: 11px;
 }
 .power[hidden] { display: none; }
 
@@ -348,7 +421,7 @@ body {
   width: 46px;
   height: 46px;
   border: 0;
-  border-radius: 50%;
+  --chamfer: 13px;
   display: grid;
   place-items: center;
   pointer-events: auto;
@@ -514,153 +587,74 @@ body {
 
 .title-foot { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
-/* --- pen carousel ------------------------------------------------------
-   The selected pen sits dead centre at full size; neighbours shrink and fade
-   away from it, so the eye is told exactly what is equipped. Swipe or tap. */
-.carousel {
-  position: relative;
-  height: 112px;
-  overflow: hidden;
+/* --- swipe zone + pager ------------------------------------------------
+   The pen render itself is the control: drag across it to change pens. The only
+   chrome is a row of dots for position and a pair of low-key arrows. */
+.swipe-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 16%;
+  height: 56%;
+  pointer-events: auto;
   touch-action: pan-y;
   cursor: grab;
-  /* Fade the ends so cards leave frame rather than being sliced off. */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
 }
-.carousel.dragging { cursor: grabbing; }
+.swipe-zone.dragging { cursor: grabbing; }
 
-/* Cards are absolutely positioned rather than laid out in a row: it lets the
-   strip wrap around (so there are always neighbours on both sides, even on the
-   first pen) and lets a long label overhang a narrow card. */
-.carousel-track {
-  position: absolute;
-  inset: 0;
-  will-change: contents;
-}
-
-.pen-card {
+.swipe-arrow {
   position: absolute;
   top: 50%;
-  left: 0;
-  width: var(--card-w, 74px);
-  height: 92px;
-  margin-top: -46px;
-  border: 0;
-  padding: 0;
-  background: none;
-  font: inherit;
-  color: var(--ink-dim);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding-top: 6px;
-  transform-origin: 50% 50%;
-  transition: color 300ms var(--ease);
-}
-
-/* Pen silhouette, drawn in CSS: cap, barrel, then a cut point for the tip. */
-.pen-glyph {
-  position: relative;
-  width: 13px;
-  height: 54px;
-  border-radius: 6px 6px 1px 1px;
-  clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
-  background: linear-gradient(
-    180deg,
-    var(--cap) 0 28%,
-    var(--body) 28% 84%,
-    var(--tip) 84% 100%
-  );
-  box-shadow: inset -3.5px 0 7px rgba(0, 0, 0, 0.5),
-              inset 3px 0 5px rgba(255, 255, 255, 0.30);
-  transition: filter 300ms var(--ease);
-}
-/* The pocket clip. */
-.pen-glyph::after {
-  content: '';
-  position: absolute;
-  top: 16%;
-  right: -3px;
-  width: 3px;
-  height: 24%;
-  border-radius: 2px;
-  background: var(--clip);
-}
-
-.pen-card b {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 124px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.pen-card[aria-checked='true'] { color: var(--ink); }
-.pen-card[aria-checked='true'] .pen-glyph {
-  filter: drop-shadow(0 0 12px var(--accent-dim)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.6));
-}
-/* Corner brackets on the equipped card — the loadout-screen idiom. */
-.pen-card[aria-checked='true']::before {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  margin-left: -30px;
-  width: 60px;
-  height: 66px;
-  border: 1.5px solid var(--accent);
-  border-radius: 3px;
-  clip-path: polygon(
-    0 0, 34% 0, 34% 5%, 5% 5%, 5% 26%, 0 26%,
-    0 74%, 5% 74%, 5% 95%, 34% 95%, 34% 100%, 0 100%,
-    100% 100%, 66% 100%, 66% 95%, 95% 95%, 95% 74%, 100% 74%,
-    100% 26%, 95% 26%, 95% 5%, 66% 5%, 66% 0, 100% 0
-  );
-  pointer-events: none;
-  animation: bracket-in 340ms var(--ease);
-}
-@keyframes bracket-in {
-  from { opacity: 0; transform: scale(1.18); }
-  to { opacity: 1; transform: none; }
-}
-
-.carousel-arrow {
-  position: absolute;
-  top: 50%;
-  width: 34px;
-  height: 34px;
-  margin-top: -17px;
+  width: 46px;
+  height: 46px;
+  margin-top: -23px;
   border: 0;
   padding: 0;
   background: none;
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 200ms ease;
+  opacity: 0.35;
+  transition: opacity 220ms ease;
 }
-.carousel-arrow:active { opacity: 1; }
-.carousel-arrow::before {
+.swipe-arrow:active { opacity: 0.9; }
+.swipe-arrow::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 9px;
-  height: 9px;
-  margin: -5px 0 0 -5px;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
   border-top: 2px solid var(--ink);
   border-right: 2px solid var(--ink);
 }
-.carousel-arrow--prev { left: 2px; }
-.carousel-arrow--prev::before { transform: rotate(-135deg); }
-.carousel-arrow--next { right: 2px; }
-.carousel-arrow--next::before { transform: rotate(45deg); }
+.swipe-arrow--prev { left: 4px; }
+.swipe-arrow--prev::before { transform: rotate(-135deg); }
+.swipe-arrow--next { right: 4px; }
+.swipe-arrow--next::before { transform: rotate(45deg); }
+
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  height: 22px;
+}
+.pager button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  background: rgba(255, 255, 255, 0.28);
+  transform: rotate(45deg);
+  cursor: pointer;
+  transition: background 260ms var(--ease), transform 260ms var(--ease),
+              box-shadow 260ms var(--ease);
+}
+.pager button[aria-checked='true'] {
+  background: var(--accent);
+  transform: rotate(45deg) scale(1.5);
+  box-shadow: 0 0 12px var(--accent-dim);
+}
 
 /* Chamfered, glass, teal-lit. clip-path removes the box-shadow, so the outer
    glow is a drop-shadow filter instead — that one follows the clipped shape. */
@@ -767,7 +761,7 @@ body {
 .card {
   width: min(390px, 100%);
   padding: 28px 24px;
-  border-radius: 26px;
+  --chamfer: 22px;
   text-align: center;
   animation: card-in 480ms var(--ease);
 }
@@ -855,7 +849,7 @@ body {
   right: calc(var(--safe-r) + 16px);
   bottom: calc(9vh + 18px);
   padding: 9px 16px;
-  border-radius: 999px;
+  --chamfer: 10px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -927,11 +921,13 @@ body {
   .wm-pen { font-size: 17px; }
   .hero-model { font-size: 26px; }
   .hero-brand { font-size: 11px; }
-  .title-foot { flex-direction: row; align-items: center; gap: 12px; }
-  .carousel { flex: 1; height: 86px; }
-  .pen-card { height: 78px; --card-w: 62px; }
-  .pen-glyph { height: 42px; width: 11px; }
+  .title-foot { flex-direction: row; align-items: center; gap: 14px; }
+  .pager { flex: 1; }
+  .swipe-zone { top: 12%; height: 62%; }
+  .pager { height: 18px; }
   .wm-kicker { display: none; }
+  .knockout { top: 34%; }
+  .knockout-card strong { font-size: 20px; }
   .cta { min-height: 52px; font-size: 16px; padding: 0 26px; }
   /* Credit gets its own strip so it never sits under the pen rail. */
   .title-foot { padding-bottom: 14px; }

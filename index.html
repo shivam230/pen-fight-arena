@@ -37,6 +37,13 @@
 
     <div class="toast-slot" id="toast-slot" aria-live="polite"></div>
 
+    <div class="knockout" id="knockout" aria-live="assertive">
+      <div class="knockout-card">
+        <span class="knockout-tag" id="knockout-tag">Rival pen</span>
+        <strong id="knockout-title">Knocked off</strong>
+      </div>
+    </div>
+
     <div class="hud-bottom">
       <div class="turn-banner glass" id="turn-banner">
         <strong id="turn-title">Your turn</strong>
@@ -85,19 +92,20 @@
       </span>
     </h1>
 
+    <div class="swipe-zone" id="swipe-zone" aria-hidden="true">
+      <button class="swipe-arrow swipe-arrow--prev" id="pen-prev"
+              type="button" aria-label="Previous pen"></button>
+      <button class="swipe-arrow swipe-arrow--next" id="pen-next"
+              type="button" aria-label="Next pen"></button>
+    </div>
+
     <div class="hero" id="hero">
       <span class="hero-brand" id="hero-brand">Reynolds</span>
       <h2 class="hero-model" id="hero-model">045</h2>
     </div>
 
     <div class="title-foot">
-      <div class="carousel" id="pen-carousel" role="radiogroup" aria-label="Choose your pen">
-        <div class="carousel-track" id="pen-track"></div>
-        <button class="carousel-arrow carousel-arrow--prev" id="pen-prev"
-                type="button" aria-label="Previous pen"></button>
-        <button class="carousel-arrow carousel-arrow--next" id="pen-next"
-                type="button" aria-label="Next pen"></button>
-      </div>
+      <div class="pager" id="pen-pager" role="radiogroup" aria-label="Choose your pen"></div>
 
       <button class="cta" id="btn-play"><span>Fight</span></button>
 

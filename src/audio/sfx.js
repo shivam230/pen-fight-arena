@@ -301,50 +301,65 @@ export class AudioEngine {
     }
   }
 
-  /** Rising tension while the player pulls back the flick. */
+  /**
+   * Tension while the player pulls back.
+   *
+   * Deliberately NOT a rising pitch sweep — a tone that tracks your finger is
+   * grating within two turns, and you hear this on every single flick. This is a
+   * soft filtered-noise "draw", like a bowstring under load: it only swells in
+   * volume and opens slightly in tone, with no pitch to fixate on. The one
+   * discrete event is a single soft tick when you cross into overcharge, which is
+   * the only moment that actually needs your attention.
+   */
   chargeStart() {
     if (!this.ready || this.muted || this._charge) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = 200;
+
+    const src = this._noiseSource(this.pinkBuf);
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 380;
+    band.Q.value = 0.7;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 900;
-    lp.Q.value = 6;
+
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.05, now + 0.06);
-    // Wobble that tightens as you pull further — the "this might go wrong" cue.
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 6;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.016;
-    lfo.connect(lfoGain); lfoGain.connect(g.gain);
-    osc.connect(lp); lp.connect(g); g.connect(this.dry);
-    osc.start(now); lfo.start(now);
-    this._charge = { osc, g, lp, lfo, lfoGain };
+    g.gain.linearRampToValueAtTime(0.012, now + 0.10);
+
+    src.connect(band); band.connect(lp); lp.connect(g); g.connect(this.dry);
+    src.start(now);
+
+    this._charge = { src, band, lp, g, warned: false };
   }
 
   chargeUpdate(power) {
     if (!this._charge) return;
     const t = this.ctx.currentTime;
     const c = this._charge;
-    c.osc.frequency.setTargetAtTime(200 + power * 620, t, 0.03);
-    c.lp.frequency.setTargetAtTime(700 + power * 2400, t, 0.03);
-    c.lfo.frequency.setTargetAtTime(6 + power * 7, t, 0.05);
-    c.g.gain.setTargetAtTime(0.03 + power * 0.05, t, 0.04);
+    // Volume and brightness only. Both ramp smoothly, so there is nothing to
+    // "hear tracking" — it just feels like load building up.
+    c.g.gain.setTargetAtTime(0.010 + power * 0.055, t, 0.05);
+    c.band.frequency.setTargetAtTime(320 + power * 520, t, 0.07);
+    c.lp.frequency.setTargetAtTime(800 + power * 2200, t, 0.07);
+
+    if (!c.warned && power > 0.75) {
+      c.warned = true;
+      this.tick(880, 0.05);
+    } else if (c.warned && power < 0.70) {
+      c.warned = false;   // re-arm if they ease back off
+    }
   }
 
   chargeStop() {
     if (!this._charge) return;
-    const { osc, g, lfo } = this._charge;
+    const { src, g } = this._charge;
     const t = this.ctx.currentTime;
     g.gain.cancelScheduledValues(t);
-    g.gain.setTargetAtTime(0.0001, t, 0.02);
-    osc.stop(t + 0.12);
-    lfo.stop(t + 0.12);
+    g.gain.setTargetAtTime(0.0001, t, 0.03);
+    try { src.stop(t + 0.18); } catch { /* already stopped */ }
     this._charge = null;
   }
 

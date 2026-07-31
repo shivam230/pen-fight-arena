@@ -157,6 +157,10 @@ export class AiPlanner {
   _evaluate(mine, angle, power, offset, horizon) {
     this._restore();
     const c = this._map.get(mine);
+    // The snapshot can be rebuilt between starting a search and finishing it —
+    // a pen going over the edge drops it from the scratch world. Abandon the
+    // candidate rather than throwing in the middle of a turn.
+    if (!c) return -Infinity;
     // Must be the identical conversion the player's flick uses, or the search is
     // solving a different game than the one being played.
     c.flick(Math.cos(angle), Math.sin(angle), impulseFor(c.spec, power), offset);

@@ -86,13 +86,15 @@ function wireMatch(m, cpuId) {
   ui.setNames(PEN_BY_ID[ui.selectedPen], PEN_BY_ID[cpuId]);
   ui.setScore(m.score);
 
-  m.on('biome', (biome) => {
-    ui.setBiome(biome);
-    if (m.state !== STATE.LOADOUT) ui.toast(biome.name, biome.subtitle, 4200);
-  });
+  // The arena name lives in the HUD chip; announcing it as a toast on every
+  // match start was just something else to read before you could play.
+  m.on('biome', (biome) => ui.setBiome(biome));
+
+  m.on('knockout', (info) => ui.knockout(info));
 
   m.on('round', ({ round, score, opener }) => {
     ui.hideResult();
+    ui.hideKnockout();
     ui.setRound(round);
     ui.setScore(score);
     ui.setTurn(opener);

@@ -101,28 +101,38 @@ export class Stage {
     this.resize();
   }
 
-  /** Pick a starting tier from what the device tells us before measuring. */
+  /**
+   * Starting tier from what the device reports, before we can measure anything.
+   *
+   * Deliberately generous: plenty of capable phones report 4 cores and Safari
+   * doesn't expose deviceMemory at all, so the old thresholds dumped good
+   * hardware straight into the ugliest tier. The frame-time governor is the real
+   * arbiter — it only takes a couple of seconds to correct a wrong guess, and
+   * starting too low means the game looks flat for those seconds on every device.
+   */
   detectTier() {
-    const mem = navigator.deviceMemory || 4;
+    const mem = navigator.deviceMemory;
     const cores = navigator.hardwareConcurrency || 4;
-    const coarse = matchMedia('(pointer: coarse)').matches;
-    if (mem <= 3 || cores <= 4) return 'low';
-    if (coarse && mem <= 6) return 'medium';
+    if (mem !== undefined && mem <= 2) return 'low';
+    if (cores <= 3) return 'low';
+    if (matchMedia('(pointer: coarse)').matches) return 'medium';
     return 'high';
   }
 
   applyTier(tier) {
     this.tier = tier;
-    const dprCap = tier === 'high' ? 1.75 : tier === 'medium' ? 1.35 : 1.0;
+    // Even the low tier stays above 1.0 — dropping to native 1x is what made the
+    // game look like it had lost its textures on a phone.
+    const dprCap = tier === 'high' ? 1.75 : tier === 'medium' ? 1.5 : 1.25;
     this._dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.key.shadow.mapSize.set(tier === 'high' ? 1024 : 512,
-      tier === 'high' ? 1024 : 512);
+    const shadowSize = tier === 'low' ? 768 : 1024;
+    this.key.shadow.mapSize.set(shadowSize, shadowSize);
     if (this.key.shadow.map) {
       this.key.shadow.map.dispose();
       this.key.shadow.map = null;
     }
-    this.post.bloomScale = tier === 'high' ? 0.5 : 0.34;
+    this.post.bloomScale = tier === 'high' ? 0.5 : 0.38;
     this.post.setQuality(tier);
     this.qualityTransmission = tier === 'high';
     this.resize();
@@ -368,18 +378,28 @@ export class Stage {
   }
 
   /** Swing out and down to watch a pen fall off the edge. */
-  setFallView(target, radius) {
+  /**
+   * Frame a knockout.
+   *
+   * Emphatically does NOT follow the pen down. The old version aimed at y = -0.5
+   * and chased it over the lip, which filled the screen with anonymous cliff for a
+   * second and left you unable to tell whose pen had gone. Instead the camera
+   * pushes in on the spot along the deck, keeping the arena, the surviving pen's
+   * marker and the knockout beacon all in shot.
+   */
+  setKnockoutView(target, radius) {
     const len = Math.hypot(target.x, target.z) || 1;
     const ux = target.x / len, uz = target.z / len;
-    const d = this._fitDistance(radius * 0.75);
+    const d = this._fitDistance(radius * 0.95);
     this._wantPos.set(
-      target.x + ux * d * 0.62,
-      d * 0.20,
-      target.z + uz * d * 0.62,
+      target.x + ux * d * 0.50,
+      d * 0.36,
+      target.z + uz * d * 0.50,
     );
-    this._wantLook.set(target.x, -0.5, target.z);
-    this._fovWant = this._fovBase + 6;
-    this._camLambda = 2.2;
+    // Look at a point just inboard of the lip, level with the deck — never below it.
+    this._wantLook.set(target.x * 0.5, 0.03, target.z * 0.5);
+    this._fovWant = this._fovBase - 5;
+    this._camLambda = 2.6;
   }
 
   /**
@@ -427,6 +447,10 @@ export class Stage {
 
   /** Governor: walk quality down if we are consistently missing frame time. */
   _governor(dt) {
+    // A backgrounded tab, an alt-tab or a GC pause shows up as one enormous frame.
+    // Feeding those to the average would demote a perfectly capable device on the
+    // strength of a moment when it wasn't rendering at all.
+    if (dt > 0.05) return;
     this._frameTimes[this._ftIndex] = dt;
     this._ftIndex = (this._ftIndex + 1) % this._frameTimes.length;
     this._ftFilled = Math.min(this._ftFilled + 1, this._frameTimes.length);
@@ -454,7 +478,7 @@ export class Stage {
     this._governor(dt);
     this.updateCamera(dt);
     if (this.weather) this.weather.update(dt, this.camera.position);
-    if (this.impactFX) this.impactFX.update(dt);
+    if (this.impactFX) this.impactFX.update(dt, this.camera);
     this.post.render(this.scene, this.camera, dt);
   }
 
