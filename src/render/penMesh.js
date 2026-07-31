@@ -64,23 +64,32 @@ function barrelTexture(spec) {
 
   // Branding, rotated so it reads along the barrel rather than around it.
   if (spec.print) {
-    ctx.save();
-    ctx.translate(TEX_W * 0.5, TEX_H * 0.52);
-    ctx.rotate(-Math.PI / 2);
     const lum = ((body.color >> 16 & 255) * 0.299 + (body.color >> 8 & 255) * 0.587
       + (body.color & 255) * 0.114) / 255;
-    ctx.fillStyle = lum > 0.55 ? 'rgba(20,22,26,0.86)' : 'rgba(248,250,252,0.88)';
-    ctx.font = 'bold 15px "Helvetica Neue", Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.letterSpacing = '1.5px';
-    ctx.fillText(spec.print, 0, 0);
-    ctx.restore();
+    const ink = lum > 0.55 ? 'rgba(18,20,24,0.88)' : 'rgba(250,252,255,0.92)';
+    // Printed on both sides: the showcase pen turns, and a single legend spends
+    // half its rotation hidden round the back.
+    for (const u of [0.25, 0.75]) {
+      ctx.save();
+      ctx.translate(TEX_W * u, TEX_H * 0.52);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = ink;
+      ctx.font = '700 21px "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.letterSpacing = '2px';
+      ctx.fillText(spec.print, 0, 0);
+      // A hairline rule under the legend, the way moulded pens are actually printed.
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(-ctx.measureText(spec.print).width * 0.5, 15,
+        ctx.measureText(spec.print).width, 1.2);
+      ctx.restore();
+    }
   }
 
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   texCache.set(spec.id, tex);
   return tex;
 }
@@ -88,7 +97,10 @@ function barrelTexture(spec) {
 function segmentsFor(profile) {
   if (profile === 'hex') return 6;
   if (profile === 'triangle') return 3;
-  return 20;
+  // 30 rather than 20: on the loadout screen a pen fills half the display, and a
+  // 20-sided barrel visibly facets at that size. Two pens' worth of extra
+  // triangles is nothing next to the terrain.
+  return 30;
 }
 
 /** Distance from the axis to a resting flat face — how high the barrel sits. */
@@ -223,7 +235,7 @@ export function buildPen(spec, quality = {}) {
 
   // --- rear cap / click knob ------------------------------------------------
   group.add(tube(spec, 0.012, capEnd, r * 1.02, r * 1.03, mats.cap));
-  const domeGeo = new THREE.SphereGeometry(r * 1.02, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  const domeGeo = new THREE.SphereGeometry(r * 1.02, 26, 14, 0, Math.PI * 2, 0, Math.PI / 2);
   domeGeo.rotateZ(Math.PI / 2);
   domeGeo.translate(-L * 0.5 + L * 0.012, 0, 0);
   const dome = new THREE.Mesh(domeGeo, mats.cap);

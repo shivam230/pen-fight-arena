@@ -16,6 +16,12 @@ import { Weather, ImpactFX } from './fx.js';
 
 const TIERS = ['low', 'medium', 'high'];
 
+// Loadout showcase: a 14 cm pen scaled to ~0.6 m so its grip ribs, clip and
+// tip cone actually resolve on a phone screen.
+const SHOWCASE_SCALE = 4.4;
+const SHOWCASE_Y = 0.46;
+const SHOWCASE_LENGTH = 0.145 * SHOWCASE_SCALE;
+
 /** Frame-rate independent exponential smoothing. */
 export function damp(current, target, lambda, dt) {
   return target + (current - target) * Math.exp(-lambda * dt);
@@ -45,7 +51,7 @@ export class Stage {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.03, 1400);
+    this.camera = new THREE.PerspectiveCamera(46, 1, 0.012, 1400);
 
     // --- light rig ----------------------------------------------------------
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
@@ -87,6 +93,7 @@ export class Stage {
 
     this.weather = null;
     this.impactFX = null;
+    this._showcase = null;
     this.arena = null;
     this._envMap = null;
     this._bg = null;
@@ -226,6 +233,70 @@ export class Stage {
   }
 
   // --- camera -------------------------------------------------------------
+
+  // --- loadout showcase ---------------------------------------------------
+
+  /**
+   * Put a pen on display above the ledge, scaled up and slowly turning, with the
+   * live arena behind it. This is the loadout screen's "background" — the game
+   * itself, not a picture of it.
+   */
+  setShowcase(group) {
+    this.clearShowcase();
+    this._showcase = group;
+    group.scale.setScalar(SHOWCASE_SCALE);
+    group.position.set(0, SHOWCASE_Y, 0);
+    this.scene.add(group);
+    this._showcaseSpin = -0.5;
+    this._showcaseIn = 0;
+  }
+
+  clearShowcase() {
+    if (!this._showcase) return;
+    this.scene.remove(this._showcase);
+    this._showcase = null;
+  }
+
+  updateShowcase(dt) {
+    const g = this._showcase;
+    if (!g) return;
+    this._showcaseSpin += dt * 0.42;
+    this._showcaseIn = Math.min(1, this._showcaseIn + dt * 2.6);
+    const ease = 1 - (1 - this._showcaseIn) ** 3;
+    g.rotation.order = 'YZX';
+    g.rotation.y = this._showcaseSpin;
+    // A slow tilt oscillation so the specular highlight travels along the barrel.
+    g.rotation.z = -0.22 + Math.sin(this._showcaseSpin * 0.7) * 0.14;
+    g.position.y = SHOWCASE_Y + (1 - ease) * 0.25;
+    g.scale.setScalar(SHOWCASE_SCALE * (0.82 + ease * 0.18));
+
+    // Frame it: close enough that the grip ribs and the clip read clearly.
+    const half = SHOWCASE_LENGTH * 0.5;
+    const vFov = THREE.MathUtils.degToRad(this._fovBase);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this._aspect);
+    // A little margin: at 0.94 the barrel runs off both edges of a phone screen.
+    const d = half / Math.tan(Math.min(vFov, hFov) / 2) * 1.16;
+    this._wantPos.set(0, SHOWCASE_Y + 0.10, d);
+    this._wantLook.set(0, SHOWCASE_Y - 0.01, 0);
+    this._fovWant = this._fovBase;
+    this._camLambda = 2.4;
+  }
+
+  /** Direct camera control, used by the replay director. */
+  setFreeView(px, py, pz, lx, ly, lz, fov, lambda = 6) {
+    this._wantPos.set(px, py, pz);
+    this._wantLook.set(lx, ly, lz);
+    this._fovWant = fov ?? this._fovBase;
+    this._camLambda = lambda;
+  }
+
+  /** Snap the camera instantly — for hard cuts between replay shots. */
+  cutCamera() {
+    this.camPos.copy(this._wantPos);
+    this.camLook.copy(this._wantLook);
+    this.camera.fov = this._fovWant;
+    this.camera.updateProjectionMatrix();
+  }
 
   /** Frame the whole arena from an orbiting hero angle. */
   setOverview(dt, radius) {

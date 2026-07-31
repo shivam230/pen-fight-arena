@@ -24,7 +24,7 @@ function css(c, a = 1) {
  * @param {number} seed
  * @returns {HTMLCanvasElement}
  */
-export function paintSky(sky, seed) {
+function paintSky(sky, seed) {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;

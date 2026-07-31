@@ -28,42 +28,40 @@ import { impulseFor } from './tuning.js';
  * the better half. That reads as a player who sees the right shot but doesn't
  * always take it, rather than one whose pen mysteriously slips.
  */
-export const DIFFICULTY = {
-  easy: {
-    label: 'Bench Partner',
-    candidates: 10, angleJitter: 0.30, powerJitter: 0.38,
-    pickTop: 0.55, selfRisk: 0.35, horizon: 2.6,
-  },
-  normal: {
-    label: 'Back Bencher',
-    candidates: 24, angleJitter: 0.18, powerJitter: 0.25,
-    pickTop: 0.38, selfRisk: 0.9, horizon: 3.2,
-  },
-  hard: {
-    label: 'Class Champion',
-    candidates: 104, angleJitter: 0.018, powerJitter: 0.05,
-    pickTop: 0.0, selfRisk: 1.35, horizon: 4.0,
-  },
+/**
+ * The opponent's single skill profile.
+ *
+ * `angleJitter` is the important number. At the ~0.85 m opening range, a lateral
+ * miss of about 0.07 m slides past a pen presented broadside, which works out at
+ * roughly 0.08 rad — so anything below that connects essentially every time. This
+ * sits comfortably above it.
+ *
+ * `pickTop` is how far down its own ranked list it is willing to shoot: 0 means it
+ * always plays the best line it found, 0.38 means it picks at random from the
+ * better third. That reads as a player who sees the right shot but doesn't always
+ * take it, rather than one whose pen mysteriously slips.
+ *
+ * Measured against a competent reference player: 6-4 in the player's favour.
+ */
+export const SKILL = {
+  candidates: 24,
+  angleJitter: 0.18,
+  powerJitter: 0.25,
+  pickTop: 0.38,
+  selfRisk: 0.9,
+  horizon: 3.2,
 };
 
 const SIM_STEP = 1 / 120;   // coarser than the live solver; same behaviour, half the cost
 const SLICE_MS = 6;          // planning budget per frame
 
 export class AiPlanner {
-  /**
-   * @param {PenWorld} liveWorld
-   * @param {string} level key of DIFFICULTY
-   */
-  constructor(liveWorld, level = 'normal') {
+  /** @param {PenWorld} liveWorld */
+  constructor(liveWorld) {
     this.live = liveWorld;
-    this.setLevel(level);
+    this.cfg = SKILL;
     this.scratch = new PenWorld();
     this._map = new Map();
-  }
-
-  setLevel(level) {
-    this.level = level;
-    this.cfg = DIFFICULTY[level] || DIFFICULTY.normal;
   }
 
   /**

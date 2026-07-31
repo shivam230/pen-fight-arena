@@ -1,10 +1,15 @@
 /**
  * main.js — bootstrap, input plumbing and the frame loop.
+ *
+ * The loadout screen is not a separate scene: the game builds a real arena at
+ * boot, holds it, and floats the selected pen over it as a 3D showcase. Pressing
+ * Fight just hands the same scene over to the match.
  */
 
 import { Stage } from './render/stage.js';
 import { Match, STATE } from './game/match.js';
 import { PENS, PEN_BY_ID } from './game/pens.js';
+import { buildPen } from './render/penMesh.js';
 import { UI } from './ui/hud.js';
 import { audio } from './audio/sfx.js';
 
@@ -14,9 +19,29 @@ stage.applyTier(stage.detectTier());
 
 const ui = new UI();
 let match = null;
-let running = false;
+let showcase = null;
 
-// --------------------------------------------------------------- helpers ---
+// --------------------------------------------------------------- showcase ---
+
+function setShowcasePen(specId) {
+  if (showcase) {
+    stage.clearShowcase();
+    showcase.dispose();
+    showcase = null;
+  }
+  const spec = PEN_BY_ID[specId] || PENS[0];
+  showcase = buildPen(spec, { transmission: stage.qualityTransmission !== false });
+  stage.setShowcase(showcase.group);
+}
+
+function clearShowcasePen() {
+  if (!showcase) return;
+  stage.clearShowcase();
+  showcase.dispose();
+  showcase = null;
+}
+
+// ----------------------------------------------------------------- match ---
 
 /** The rival picks a different pen, weighted toward one that counters yours. */
 function pickCpuPen(playerId) {
@@ -33,7 +58,7 @@ function pickCpuPen(playerId) {
   return top[(Math.random() * top.length) | 0].id;
 }
 
-function newMatch() {
+async function buildMatch({ hold = false } = {}) {
   // The outgoing match still owns pens, markers and aim helpers inside the shared
   // scene. Tear it down before building the next one or they pile up.
   if (match) {
@@ -41,14 +66,12 @@ function newMatch() {
     match = null;
   }
   const cpuId = pickCpuPen(ui.selectedPen);
-  match = new Match(stage, {
-    difficulty: ui.difficulty,
-    playerPen: ui.selectedPen,
-    cpuPen: cpuId,
-  });
+  match = new Match(stage, { playerPen: ui.selectedPen, cpuPen: cpuId });
   match.attachAimHelpers(stage.scene);
   wireMatch(match, cpuId);
-  return match.newMatch((Math.random() * 1e9) | 0);
+  await match.newMatch((Math.random() * 1e9) | 0);
+  if (hold) match.holdForLoadout();
+  return match;
 }
 
 function wireMatch(m, cpuId) {
@@ -57,7 +80,7 @@ function wireMatch(m, cpuId) {
 
   m.on('biome', (biome) => {
     ui.setBiome(biome);
-    ui.toast(biome.name, biome.subtitle, 4200);
+    if (m.state !== STATE.LOADOUT) ui.toast(biome.name, biome.subtitle, 4200);
   });
 
   m.on('round', ({ round, score, opener }) => {
@@ -86,6 +109,8 @@ function wireMatch(m, cpuId) {
 
   m.on('toast', ({ title, body }) => ui.toast(title, body));
 
+  m.on('replay', ({ on }) => ui.setReplay(on, 'Clean knock'));
+
   m.on('roundover', ({ winner, clean, score }) => {
     ui.setScore(score);
     ui.setPower(null);
@@ -105,9 +130,9 @@ function wireMatch(m, cpuId) {
       tone: won ? 'win' : 'lose',
       body: won
         ? (clean
-          ? 'Straight off the ledge, and your pen never wobbled. That is the whole game.'
+          ? 'Straight off the ledge, and your pen never wobbled.'
           : 'Their pen is somewhere in the valley. Reset and go again.')
-        : 'Yours went over. Watch the power meter — past the mark you are gambling.',
+        : 'Yours went over. Watch the meter — past the mark you are gambling.',
     });
   });
 
@@ -122,9 +147,8 @@ function wireMatch(m, cpuId) {
       title: won ? 'You win' : 'You lose',
       tone: won ? 'win' : 'lose',
       body: `${score.player}–${score.cpu}.${won ? flair : ''} `
-        + (won
-          ? 'Next arena is already generating.'
-          : 'The rival read the angles better. Try a heavier pen, or ease off the power.'),
+        + (won ? 'A new ledge is waiting.'
+          : 'The rival read the angles better. Try a heavier pen, or ease off.'),
       actions: true,
     });
   });
@@ -174,8 +198,8 @@ canvas.addEventListener('pointerup', onUp, { passive: false });
 canvas.addEventListener('pointercancel', onCancel);
 canvas.addEventListener('lostpointercapture', onCancel);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-// Belt and braces: if the pointer is released anywhere outside the canvas, the
-// canvas listener may never fire, so clear the drag from the window too.
+// Belt and braces: if the pointer is released outside the canvas, its listener
+// may never fire, so clear the drag from the window too.
 window.addEventListener('pointerup', (e) => {
   if (pointerId === e.pointerId) onUp(e);
 });
@@ -190,34 +214,42 @@ document.addEventListener('visibilitychange', () => {
 
 // ------------------------------------------------------------------- UI ---
 
-ui.on('select', () => audio.tick(1400, 0.05));
-ui.on('difficulty', () => audio.confirm());
+ui.on('select', (id) => {
+  audio.tick(1500, 0.05);
+  setShowcasePen(id);
+});
 ui.on('mute', (muted) => audio.setMuted(muted));
+ui.on('skip', () => match && match.skipReplay());
 
 ui.on('play', async () => {
   audio.unlock();
   audio.confirm();
-  ui.setBoot('Carving the ledge…');
-  ui.el.boot.classList.remove('gone');
-  document.body.appendChild(ui.el.boot);
-  await newMatch();
+  clearShowcasePen();
   ui.showGame();
-  ui.hideBoot();
+  // The arena is already built and on screen; if the chosen pen changed since
+  // boot we need a fresh match, which is quick because the shaders are warm.
+  if (!match || match.playerSpecId !== ui.selectedPen) {
+    ui.showBoot('Setting the pens');
+    await buildMatch();
+    ui.hideBoot();
+  }
+  match.beginPlay();
 });
 
 ui.on('rematch', async () => {
   ui.hideResult();
-  ui.setBoot('Finding new ground…');
-  ui.el.boot.classList.remove('gone');
-  document.body.appendChild(ui.el.boot);
-  await newMatch();
+  ui.showBoot('Finding new ground');
+  await buildMatch();
   ui.showGame();
   ui.hideBoot();
+  match.beginPlay();
 });
 
-ui.on('change', () => {
+ui.on('change', async () => {
   ui.hideResult();
   ui.showTitle();
+  setShowcasePen(ui.selectedPen);
+  await buildMatch({ hold: true });
 });
 
 // ----------------------------------------------------------------- loop ---
@@ -232,23 +264,23 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;
 
   if (match) match.update(dt);
+  if (match && match.state === STATE.LOADOUT) stage.updateShowcase(dt);
   stage.render(dt);
 }
 
-// Boot: show the title over a quietly rendering arena so the first thing on
-// screen is the game itself, not an empty background.
 (async function boot() {
-  ui.setBoot('Warming the shaders…');
-  await new Promise((r) => requestAnimationFrame(r));
-  ui.showTitle();
-  ui.hideBoot();
-  running = true;
+  ui.showBoot('Carving the ledge');
   requestAnimationFrame(frame);
+  await buildMatch({ hold: true });
+  // Only take over the screen if nothing else has: building the first arena is
+  // async, and whatever ran in the meantime gets to keep the display.
+  if (match && match.state === STATE.LOADOUT) {
+    setShowcasePen(ui.selectedPen);
+    ui.showTitle();
+  }
+  ui.hideBoot();
 }());
 
-// Handy for poking at the running game from the console.
 if (import.meta.env?.DEV) {
   Object.assign(window, { __stage: stage, __ui: ui, __match: () => match });
 }
-
-export { stage, ui };

@@ -22,6 +22,7 @@ import { buildPen, buildContactShadow, restHeight } from '../render/penMesh.js';
 import { BIOMES } from '../render/biomes.js';
 import { audio } from '../audio/sfx.js';
 import { impulseFor, OVERCHARGE_AT } from './tuning.js';
+import { TurnRecorder, ReplayDirector } from './replay.js';
 
 const ROUNDS_TO_WIN = 2;         // best of three
 const CALM_TURNS_BEFORE_CRUMBLE = 8;
@@ -35,11 +36,13 @@ const _aimColor = new THREE.Color();
 
 export const STATE = {
   LOADING: 'loading',
+  LOADOUT: 'loadout',
   INTRO: 'intro',
   AIM: 'aim',
   RESOLVE: 'resolve',
   CPU_THINK: 'cpu-think',
   CPU_RESOLVE: 'cpu-resolve',
+  REPLAY: 'replay',
   ROUND_OVER: 'round-over',
   MATCH_OVER: 'match-over',
 };
@@ -51,11 +54,13 @@ export class Match {
     this.state = STATE.LOADING;
     this.listeners = {};
 
-    this.difficulty = opts.difficulty || 'normal';
     this.playerSpecId = opts.playerPen;
     this.cpuSpecId = opts.cpuPen;
 
-    this.ai = new AiPlanner(this.world, this.difficulty);
+    // One fixed skill level — see SKILL in ai.js.
+    this.ai = new AiPlanner(this.world);
+    this.recorder = new TurnRecorder(2);
+    this.replay = null;
     this.score = { player: 0, cpu: 0 };
     this.roundNumber = 0;
     this.cleanKnocks = { player: 0, cpu: 0 };
@@ -133,6 +138,30 @@ export class Match {
     this._timer = 0;
     this.emit('biome', this.biome);
     return this.biome;
+  }
+
+  /**
+   * Park the built match so the loadout screen can use its arena as a live
+   * backdrop. The pens are hidden — the showcase pen is the subject there.
+   */
+  holdForLoadout() {
+    this.state = STATE.LOADOUT;
+    for (const v of this.visuals.values()) {
+      v.built.group.visible = false;
+      v.shadow.visible = false;
+      v.marker.visible = false;
+    }
+  }
+
+  /** Hand the scene over to an actual match. */
+  beginPlay() {
+    for (const v of this.visuals.values()) {
+      v.built.group.visible = true;
+      v.shadow.visible = true;
+      v.marker.visible = true;
+    }
+    this.state = STATE.INTRO;
+    this._timer = 0;
   }
 
   /**
@@ -272,6 +301,11 @@ export class Match {
   }
 
   _doFlick(pen, angle, power, offset) {
+    // Only the player's turns are recorded — the cinematic only ever fires for a
+    // clean knock they made, so recording the rival's turns is pure waste.
+    if (pen === this.playerPen) this.recorder.start(this.world.pens);
+    else this.recorder.reset();
+
     const j = impulseFor(pen.spec, power);
     pen.flick(Math.cos(angle), Math.sin(angle), j, offset);
     this._flickerThisTurn = pen;
@@ -288,6 +322,9 @@ export class Match {
 
   update(dt) {
     switch (this.state) {
+      case STATE.LOADOUT:
+        return;   // the loadout screen drives the camera via Stage.updateShowcase
+
       case STATE.INTRO:
         this._timer += dt;
         this.stage.setOverview(dt, this.arena.extent * this._shrink);
@@ -330,6 +367,10 @@ export class Match {
         this._stepPhysics(dt);
         break;
 
+      case STATE.REPLAY:
+        this._updateReplay(dt);
+        break;
+
       case STATE.ROUND_OVER:
         this._timer += dt;
         this.stage.setOverview(dt, this.arena.extent * this._shrink);
@@ -355,6 +396,7 @@ export class Match {
   _stepPhysics(dt) {
     this.world.step(dt);
     this._handleEvents();
+    this.recorder.capture(dt);
 
     // Scrape audio follows the fastest-moving pen.
     let fastest = 0, fx = 0;
@@ -395,6 +437,7 @@ export class Match {
           audio.clack(e.strength, this._panFor(e.x));
           this.stage.impactFX.impact(e.x, e.y, e.strength);
           this.stage.shake(e.strength * 0.03);
+          this.recorder.noteImpact(e.x, e.y, e.strength);
           // Any contact resets the crumble countdown — a live fight never shrinks.
           this._calmTurns = 0;
           break;
@@ -407,6 +450,7 @@ export class Match {
           audio.fall(this._panFor(e.x));
           this.stage.impactFX.fallPuff(e.x, e.y);
           this.stage.shake(0.012);
+          this.recorder.noteFall(e.pen);
           if (e.pen === this._flickerThisTurn) this._selfWasSafe = false;
           this.emit('falling', { owner: e.pen.owner });
           break;
@@ -448,16 +492,81 @@ export class Match {
     if (playerOut || cpuOut) {
       const winner = playerOut ? 'cpu' : 'player';
       this.score[winner]++;
-      const clean = this._selfWasSafe && this._flickerThisTurn
-        && this._flickerThisTurn.owner === winner;
+      const clean = !!(this._selfWasSafe && this._flickerThisTurn
+        && this._flickerThisTurn.owner === winner);
       if (clean) this.cleanKnocks[winner]++;
-      this.state = STATE.ROUND_OVER;
-      this._timer = 0;
-      this.emit('roundover', { winner, clean, score: this.score });
+      this._pendingResult = { winner, clean, score: this.score };
+
+      // A clean knock the player made earns the cinematic; everything else goes
+      // straight to the round card.
+      if (winner === 'player' && clean && this.recorder.frames > 8) {
+        this._startReplay();
+      } else {
+        this._showRoundResult();
+      }
       return;
     }
 
     this._advanceTurn();
+  }
+
+  _startReplay() {
+    const pens = this.world.pens;
+    const hero = pens.indexOf(this.playerPen);
+    const victim = pens.indexOf(this.cpuPen);
+    this.replay = new ReplayDirector(this.recorder, hero, victim,
+      this.arena.extent * this._shrink);
+    this.state = STATE.REPLAY;
+    this._hideAim();
+    audio.setSlide(0, 0);
+    this.emit('replay', { on: true });
+  }
+
+  /** Cut the cinematic short and go to the round card. */
+  skipReplay() {
+    if (this.state !== STATE.REPLAY) return;
+    this.replay = null;
+    this.emit('replay', { on: false });
+    this._showRoundResult();
+  }
+
+  _showRoundResult() {
+    const r = this._pendingResult;
+    this._pendingResult = null;
+    this.state = STATE.ROUND_OVER;
+    this._timer = 0;
+    if (r) this.emit('roundover', r);
+  }
+
+  _updateReplay(dt) {
+    const d = this.replay;
+    if (!d) { this._showRoundResult(); return; }
+    const pens = this.world.pens;
+    d.update(dt, {
+      stage: this.stage,
+      setPose: (i, pose) => {
+        const p = pens[i];
+        if (!p) return;
+        p.x = pose.x; p.y = pose.y; p.a = pose.a;
+        p.height = pose.height; p.tumble = pose.tumble;
+        // state 2 = mid-fall: keep it visible so we can watch it drop.
+        p.falling = pose.state === 2;
+        p.alive = pose.state !== 0 || p.falling;
+      },
+      friction: (x, z, intensity, dx, dz, step) => {
+        this.stage.impactFX.friction(x, z, intensity, dx, dz, step, 150);
+      },
+      onImpact: (x, z, strength) => {
+        this.stage.impactFX.impact(x, z, Math.max(0.7, strength));
+        this.stage.shake(0.03);
+        audio.clack(Math.max(0.75, strength), this._panFor(x));
+      },
+    });
+    if (d.done) {
+      this.replay = null;
+      this.emit('replay', { on: false });
+      this._showRoundResult();
+    }
   }
 
   _rescue(pen) {

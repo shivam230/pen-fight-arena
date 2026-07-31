@@ -1,320 +1,152 @@
 /**
- * hud.js — DOM interface layer. No game logic lives here; it renders state the
- * Match emits and hands input intent back.
+ * hud.js — DOM interface layer. No game logic here; it renders state the Match
+ * emits and hands input intent back.
  *
- * The pen swatches on the loadout screen are drawn to a 2D canvas from the same
- * catalog entries the 3D builder uses, so the thing you pick looks like the thing
- * you get, for a couple of kilobytes instead of a second WebGL context.
+ * The loadout screen has no artwork of its own: the pen is a real 3D render in the
+ * live scene behind the glass, so what you pick is literally what you get.
  */
 
-import { PENS, penStats, FINISH } from '../game/pens.js';
-import { DIFFICULTY } from '../game/ai.js';
+import { PENS } from '../game/pens.js';
 
-const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
-
-function rounded(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, h / 2, w / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-/** Side elevation of a pen, drawn from its catalog entry. */
-export function drawPenSwatch(canvas, spec, cssWidth = 112, cssHeight = 46) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = cssWidth * dpr;
-  canvas.height = cssHeight * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssWidth, cssHeight);
-
-  const pad = 5;
-  const L = cssWidth - pad * 2;
-  const x0 = pad;
-  const thick = Math.max(6, Math.min(11, cssHeight * 0.21));
-  const cy = cssHeight * 0.60;
-  const top = cy - thick / 2;
-  const at = (t) => x0 + t * L;
-
-  const translucent = spec.body.finish === FINISH.CLEAR
-    || spec.body.finish === FINISH.FROSTED;
-
-  // Barrel
-  ctx.save();
-  rounded(ctx, at(0), top, L * 0.985, thick, thick * 0.45);
-  ctx.clip();
-
-  ctx.globalAlpha = translucent ? 0.55 : 1;
-  const grad = ctx.createLinearGradient(0, top, 0, top + thick);
-  const base = hex(spec.body.color);
-  grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.16, base);
-  grad.addColorStop(0.72, base);
-  grad.addColorStop(1, 'rgba(0,0,0,0.45)');
-  ctx.fillStyle = base;
-  ctx.fillRect(at(0), top, L, thick);
-  ctx.fillStyle = grad;
-  ctx.globalAlpha = translucent ? 0.4 : 0.85;
-  ctx.fillRect(at(0), top, L, thick);
-  ctx.globalAlpha = 1;
-
-  if (spec.body.twoTone !== undefined) {
-    ctx.fillStyle = hex(spec.body.twoTone);
-    ctx.fillRect(at(0), top, L * 0.42, thick);
-  }
-  // Cap section
-  ctx.fillStyle = hex(spec.cap.color);
-  ctx.globalAlpha = spec.cap.translucent ? 0.6 : 1;
-  ctx.fillRect(at(0), top, L * spec.cap.length, thick);
-  ctx.globalAlpha = 1;
-
-  // Grip
-  if (spec.grip) {
-    ctx.fillStyle = hex(spec.grip.color);
-    ctx.globalAlpha = spec.grip.translucent ? 0.65 : 1;
-    ctx.fillRect(at(spec.grip.from), top - 0.5,
-      L * (spec.grip.to - spec.grip.from), thick + 1);
-    ctx.globalAlpha = 1;
-    if (spec.grip.style === 'ribbed' || spec.grip.style === 'wave') {
-      ctx.fillStyle = 'rgba(0,0,0,0.30)';
-      const n = 7;
-      for (let i = 0; i < n; i++) {
-        const t = spec.grip.from + ((i + 0.5) / n) * (spec.grip.to - spec.grip.from);
-        ctx.fillRect(at(t) - 0.7, top - 0.5, 1.4, thick + 1);
-      }
-    }
-  }
-  // Machined ribs
-  if (spec.ribs) {
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    for (let i = 0; i < spec.ribs.count; i++) {
-      const t = spec.ribs.from
-        + ((i + 0.5) / spec.ribs.count) * (spec.ribs.to - spec.ribs.from);
-      ctx.fillRect(at(t) - 0.5, top, 1, thick);
-    }
-  }
-  if (spec.inkWindow) {
-    ctx.fillStyle = hex(spec.accent);
-    ctx.globalAlpha = 0.85;
-    ctx.fillRect(at(spec.inkWindow.from), top + thick * 0.25,
-      L * (spec.inkWindow.to - spec.inkWindow.from), thick * 0.5);
-    ctx.globalAlpha = 1;
-  }
-  // Specular streak — sells "moulded plastic" in two lines of code.
-  ctx.fillStyle = 'rgba(255,255,255,0.34)';
-  ctx.fillRect(at(0.02), top + thick * 0.17, L * 0.94, Math.max(1, thick * 0.13));
-  ctx.restore();
-
-  // Front taper + metal tip
-  ctx.fillStyle = hex(spec.body.color);
-  ctx.beginPath();
-  ctx.moveTo(at(0.945), top);
-  ctx.lineTo(at(0.985), cy - thick * 0.16);
-  ctx.lineTo(at(0.985), cy + thick * 0.16);
-  ctx.lineTo(at(0.945), top + thick);
-  ctx.closePath();
-  ctx.globalAlpha = translucent ? 0.6 : 1;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  ctx.strokeStyle = hex(spec.tip.color);
-  ctx.lineWidth = Math.max(1.2, thick * 0.20);
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(at(0.985), cy);
-  ctx.lineTo(at(1.0), cy);
-  ctx.stroke();
-
-  // Clip
-  ctx.fillStyle = hex(spec.clip.color);
-  ctx.globalAlpha = spec.clip.translucent ? 0.7 : 1;
-  const clipLen = spec.clip.style === 'wide' ? 0.20 : 0.17;
-  rounded(ctx, at(0.03), top - thick * 0.42, L * clipLen,
-    Math.max(2, thick * 0.30), 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // Contact shadow
-  const sh = ctx.createLinearGradient(0, cy + thick / 2, 0, cy + thick / 2 + 7);
-  sh.addColorStop(0, 'rgba(0,0,0,0.34)');
-  sh.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = sh;
-  ctx.fillRect(at(0.02), cy + thick / 2, L * 0.95, 7);
-}
-
-const STAT_LABELS = {
-  power: 'Power', speed: 'Range', stability: 'Stability', reach: 'Reach',
-};
+const STORAGE_KEY = 'penfight.pen';
 
 export class UI {
   constructor() {
+    const $ = (id) => document.getElementById(id);
     this.el = {
-      hud: document.getElementById('hud'),
-      title: document.getElementById('title'),
-      result: document.getElementById('result'),
-      boot: document.getElementById('boot'),
-      bootLabel: document.getElementById('boot-label'),
+      hud: $('hud'),
+      title: $('title'),
+      result: $('result'),
+      boot: $('boot'),
+      bootLabel: $('boot-label'),
 
-      playerPips: document.getElementById('hud-player-pips'),
-      cpuPips: document.getElementById('hud-cpu-pips'),
-      playerName: document.getElementById('hud-player-name'),
-      cpuName: document.getElementById('hud-cpu-name'),
-      round: document.getElementById('hud-round'),
-      biome: document.getElementById('hud-biome'),
-      surface: document.getElementById('hud-surface'),
-      toastSlot: document.getElementById('toast-slot'),
+      playerPips: $('hud-player-pips'),
+      cpuPips: $('hud-cpu-pips'),
+      playerName: $('hud-player-name'),
+      cpuName: $('hud-cpu-name'),
+      round: $('hud-round'),
+      biome: $('hud-biome'),
+      surface: $('hud-surface'),
+      toastSlot: $('toast-slot'),
 
-      turnBanner: document.getElementById('turn-banner'),
-      turnTitle: document.getElementById('turn-title'),
-      turnHint: document.getElementById('turn-hint'),
-      power: document.getElementById('power'),
-      powerFill: document.getElementById('power-fill'),
-      powerRead: document.getElementById('power-read'),
+      turnBanner: $('turn-banner'),
+      turnTitle: $('turn-title'),
+      turnHint: $('turn-hint'),
+      power: $('power'),
+      powerFill: $('power-fill'),
+      powerRead: $('power-read'),
 
-      rail: document.getElementById('pen-rail'),
-      detail: document.getElementById('pen-detail'),
-      difficulty: document.getElementById('difficulty'),
-      play: document.getElementById('btn-play'),
-      playSub: document.getElementById('play-sub'),
+      hero: $('hero'),
+      heroBrand: $('hero-brand'),
+      heroModel: $('hero-model'),
+      rail: $('pen-rail'),
+      play: $('btn-play'),
 
-      resultKicker: document.getElementById('result-kicker'),
-      resultTitle: document.getElementById('result-title'),
-      resultBody: document.getElementById('result-body'),
-      resultActions: document.getElementById('result-actions'),
-      rematch: document.getElementById('btn-rematch'),
-      change: document.getElementById('btn-change'),
-      sound: document.getElementById('btn-sound'),
+      replay: $('replay'),
+      replaySub: $('replay-sub'),
+      skip: $('btn-skip'),
+
+      resultKicker: $('result-kicker'),
+      resultTitle: $('result-title'),
+      resultBody: $('result-body'),
+      resultActions: $('result-actions'),
+      rematch: $('btn-rematch'),
+      change: $('btn-change'),
+      sound: $('btn-sound'),
     };
 
-    this.selectedPen = PENS[0].id;
-    this.difficulty = 'normal';
+    // Remember the last pen picked — a returning player should not have to hunt
+    // for their pen again.
+    const saved = localStorage.getItem(STORAGE_KEY);
+    this.selectedPen = PENS.some((p) => p.id === saved) ? saved : PENS[0].id;
+
     this.handlers = {};
-    this._buildRail();
-    this._buildDifficulty();
-    this._wire();
     this._pipCount = 2;
+    this._buildRail();
+    this._wire();
+    this._renderHero(false);
   }
 
   on(evt, fn) { this.handlers[evt] = fn; return this; }
   _fire(evt, arg) { if (this.handlers[evt]) this.handlers[evt](arg); }
 
+  get spec() { return PENS.find((p) => p.id === this.selectedPen); }
+
   // --------------------------------------------------------------- title ---
+
+  /** Short tile label: the model, not the brand — "045", "TRIMAX", "WOODY". */
+  static abbr(spec) {
+    const words = spec.name.split(' ');
+    return (words.length > 1 ? words[words.length - 1] : words[0]).slice(0, 7);
+  }
 
   _buildRail() {
     const frag = document.createDocumentFragment();
     PENS.forEach((spec) => {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'pen-card';
-      card.setAttribute('role', 'radio');
-      card.setAttribute('aria-checked', String(spec.id === this.selectedPen));
-      card.dataset.id = spec.id;
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'pen-tile glass';
+      tile.setAttribute('role', 'radio');
+      tile.setAttribute('aria-checked', String(spec.id === this.selectedPen));
+      tile.setAttribute('aria-label', spec.name);
+      tile.dataset.id = spec.id;
 
-      const cv = document.createElement('canvas');
-      card.appendChild(cv);
-      const b = document.createElement('b');
-      b.textContent = spec.name;
-      card.appendChild(b);
-      const i = document.createElement('i');
-      i.textContent = spec.brand;
-      card.appendChild(i);
+      // A colour swatch of the actual barrel — enough to recognise the pen at a
+      // glance without a second WebGL context or a bitmap.
+      const mark = document.createElement('span');
+      mark.className = 'tile-mark';
+      mark.style.background = `#${spec.body.color.toString(16).padStart(6, '0')}`;
+      mark.style.color = `#${spec.accent.toString(16).padStart(6, '0')}`;
 
-      card.addEventListener('click', () => {
-        this.selectPen(spec.id);
-        this._fire('select', spec.id);
-      });
-      frag.appendChild(card);
-      // Draw after layout so the canvas picks up its real CSS width.
-      requestAnimationFrame(() => drawPenSwatch(cv, spec, cv.clientWidth || 112, 46));
+      const abbr = document.createElement('span');
+      abbr.className = 'tile-abbr';
+      abbr.textContent = UI.abbr(spec);
+
+      tile.append(mark, abbr);
+      tile.addEventListener('click', () => this.selectPen(spec.id));
+      frag.appendChild(tile);
     });
     this.el.rail.appendChild(frag);
-    this._renderDetail();
   }
 
-  selectPen(id) {
+  selectPen(id, silent = false) {
+    if (id === this.selectedPen && !silent) return;
     this.selectedPen = id;
-    this.el.rail.querySelectorAll('.pen-card').forEach((c) => {
-      c.setAttribute('aria-checked', String(c.dataset.id === id));
+    localStorage.setItem(STORAGE_KEY, id);
+    this.el.rail.querySelectorAll('.pen-tile').forEach((t) => {
+      t.setAttribute('aria-checked', String(t.dataset.id === id));
     });
-    const card = this.el.rail.querySelector(`[data-id="${id}"]`);
-    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-    this._renderDetail();
-  }
-
-  _renderDetail() {
-    const spec = PENS.find((p) => p.id === this.selectedPen);
-    const stats = penStats(spec);
-    const el = this.el.detail;
-    el.innerHTML = '';
-
-    const top = document.createElement('div');
-    top.className = 'pd-top';
-    const h3 = document.createElement('h3');
-    h3.textContent = spec.name;
-    const tag = document.createElement('div');
-    tag.className = 'pd-tag';
-    tag.textContent = spec.tagline;
-    top.append(h3, tag);
-
-    const p = document.createElement('p');
-    p.textContent = spec.blurb;
-
-    const grid = document.createElement('div');
-    grid.className = 'stat-grid';
-    for (const key of ['power', 'speed', 'stability', 'reach']) {
-      const row = document.createElement('div');
-      row.className = 'stat';
-      const label = document.createElement('span');
-      label.textContent = STAT_LABELS[key];
-      const bar = document.createElement('div');
-      bar.className = 'stat-bar';
-      const fill = document.createElement('i');
-      fill.style.width = `${Math.round(stats[key] * 100)}%`;
-      bar.appendChild(fill);
-      row.append(label, bar);
-      grid.appendChild(row);
+    // Scroll the rail by hand. scrollIntoView() walks every scrollable ancestor,
+    // including the document, and will happily shove the whole fixed layout sideways.
+    const tile = this.el.rail.querySelector(`[data-id="${id}"]`);
+    if (tile) {
+      const rail = this.el.rail;
+      const target = tile.offsetLeft - (rail.clientWidth - tile.offsetWidth) / 2;
+      rail.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
     }
-
-    const spec2 = document.createElement('div');
-    spec2.className = 'pd-spec';
-    spec2.textContent =
-      `${spec.lengthMm} mm · ⌀${spec.diameterMm} mm · ${spec.massG} g`
-      + `${spec.estimated ? ' (est.)' : ''} · ${spec.profile} barrel`;
-
-    el.append(top, p, grid, spec2);
+    this._renderHero(true);
+    if (!silent) this._fire('select', id);
   }
 
-  _buildDifficulty() {
-    Object.entries(DIFFICULTY).forEach(([key, cfg]) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(key === this.difficulty));
-      b.dataset.key = key;
-      const strong = document.createElement('span');
-      strong.textContent = cfg.label;
-      const em = document.createElement('em');
-      em.textContent = key;
-      b.append(strong, em);
-      b.addEventListener('click', () => {
-        this.difficulty = key;
-        this.el.difficulty.querySelectorAll('button').forEach((x) => {
-          x.setAttribute('aria-checked', String(x.dataset.key === key));
-        });
-        this._fire('difficulty', key);
-      });
-      this.el.difficulty.appendChild(b);
-    });
+  _renderHero(animate) {
+    const spec = this.spec;
+    this.el.heroBrand.textContent = spec.brand;
+    // Drop the brand from the model line so "Reynolds Reynolds 045" never happens.
+    const model = spec.name.startsWith(spec.brand)
+      ? spec.name.slice(spec.brand.length).trim() : spec.name;
+    this.el.heroModel.textContent = model || spec.name;
+    if (animate) {
+      this.el.hero.classList.remove('swap');
+      void this.el.hero.offsetWidth;   // restart the animation
+      this.el.hero.classList.add('swap');
+    }
   }
 
   _wire() {
     this.el.play.addEventListener('click', () => this._fire('play'));
     this.el.rematch.addEventListener('click', () => this._fire('rematch'));
     this.el.change.addEventListener('click', () => this._fire('change'));
+    this.el.skip.addEventListener('click', () => this._fire('skip'));
     this.el.sound.addEventListener('click', () => {
       const muted = this.el.sound.classList.toggle('muted');
       this.el.sound.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
@@ -338,10 +170,18 @@ export class UI {
 
   hideBoot() {
     this.el.boot.classList.add('gone');
-    setTimeout(() => { this.el.boot.remove(); }, 600);
+    clearTimeout(this._bootTimer);
+    this._bootTimer = setTimeout(() => { this.el.boot.hidden = true; }, 620);
   }
 
-  setBoot(label) { this.el.bootLabel.textContent = label; }
+  showBoot(label) {
+    this.el.bootLabel.textContent = label;
+    this.el.boot.hidden = false;
+    clearTimeout(this._bootTimer);
+    // Force a reflow so removing .gone actually re-runs the fade.
+    void this.el.boot.offsetWidth;
+    this.el.boot.classList.remove('gone');
+  }
 
   setNames(playerSpec, cpuSpec) {
     this.el.playerName.textContent = playerSpec.name;
@@ -354,16 +194,16 @@ export class UI {
   }
 
   setScore(score) {
-    const render = (host, n, count) => {
+    const render = (host, n) => {
       host.innerHTML = '';
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < this._pipCount; i++) {
         const d = document.createElement('div');
         d.className = `pip${i < n ? ' on' : ''}`;
         host.appendChild(d);
       }
     };
-    render(this.el.playerPips, score.player, this._pipCount);
-    render(this.el.cpuPips, score.cpu, this._pipCount);
+    render(this.el.playerPips, score.player);
+    render(this.el.cpuPips, score.cpu);
   }
 
   setRound(n) { this.el.round.textContent = `Round ${n}`; }
@@ -374,7 +214,7 @@ export class UI {
     b.classList.add(owner === 'player' ? 'player' : 'cpu');
     this.el.turnTitle.textContent = owner === 'player' ? 'Your turn' : 'Rival thinking';
     this.el.turnHint.textContent = hint
-      || (owner === 'player' ? 'Drag back anywhere, then let go' : 'Reading the angles…');
+      || (owner === 'player' ? 'Drag back anywhere, then let go' : 'Reading the angles');
   }
 
   quietBanner(quiet = true) {
@@ -394,9 +234,17 @@ export class UI {
     this.el.powerRead.textContent = state.selfOut ? 'RISK' : `${pct}%`;
   }
 
+  setReplay(on, subtitle) {
+    this.el.replay.classList.toggle('on', on);
+    if (subtitle) this.el.replaySub.textContent = subtitle;
+    // Hide the playing HUD during the cinematic — letterbox plus a scoreboard
+    // reads as a bug, not a replay.
+    this.el.hud.hidden = on;
+  }
+
   toast(title, body, ms = 3200) {
     const t = document.createElement('div');
-    t.className = 'toast';
+    t.className = 'toast glass';
     const s = document.createElement('strong');
     s.textContent = title;
     const p = document.createElement('span');

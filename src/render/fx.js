@@ -320,6 +320,67 @@ export class ImpactFX {
     this._ring(x, z, 0.05 + strength * 0.22, 0.35 + strength * 0.5);
   }
 
+  /**
+   * Spray thrown up by a barrel scraping across the surface.
+   *
+   * What comes off depends on what it is scraping: amber sparks off basalt,
+   * water off wet concrete, ice crystals off the glacier, dust off sandstone.
+   * `rate` is per-second so the emission stays frame-rate independent — this runs
+   * during slow-motion replay, where a per-frame count would look wrong.
+   */
+  friction(x, z, intensity, dirX, dirZ, dt, rate = 90) {
+    this._fricAcc = (this._fricAcc || 0) + rate * intensity * dt;
+    let n = Math.floor(this._fricAcc);
+    if (n <= 0) return;
+    this._fricAcc -= n;
+    n = Math.min(n, 6);
+
+    const id = this.biome.id;
+    const wet = id === 'terrace';
+    const icy = id === 'serac';
+    const hot = id === 'caldera';
+
+    for (let i = 0; i < n; i++) {
+      // Thrown backwards and sideways from the direction of travel.
+      const spread = (Math.random() - 0.5) * 1.1;
+      const bx = -dirX + (-dirZ) * spread;
+      const bz = -dirZ + dirX * spread;
+      const sp = (0.25 + Math.random() * 0.85) * intensity;
+      let r, g, b, size, up;
+
+      if (hot) {
+        r = 1.0; g = 0.42 + Math.random() * 0.35; b = 0.10;
+        size = 0.004 + Math.random() * 0.009;
+        up = 0.5 + Math.random() * 1.4;
+      } else if (wet) {
+        r = 0.72; g = 0.86; b = 1.0;
+        size = 0.005 + Math.random() * 0.013;
+        up = 0.7 + Math.random() * 1.5;
+      } else if (icy) {
+        r = 0.86; g = 0.96; b = 1.0;
+        size = 0.004 + Math.random() * 0.010;
+        up = 0.5 + Math.random() * 1.1;
+      } else {
+        // Sandstone / granite: warm grit, with a few genuine sparks off the tip.
+        const spark = Math.random() < 0.35;
+        r = spark ? 1.0 : 0.82;
+        g = spark ? 0.72 : 0.70;
+        b = spark ? 0.34 : 0.56;
+        size = 0.004 + Math.random() * 0.011;
+        up = 0.4 + Math.random() * 1.2;
+      }
+
+      this._emit(
+        x + (Math.random() - 0.5) * 0.02,
+        0.004 + Math.random() * 0.008,
+        z + (Math.random() - 0.5) * 0.02,
+        bx * sp, up * intensity, bz * sp,
+        size, 0.18 + Math.random() * 0.34,
+        r, g, b,
+      );
+    }
+  }
+
   /** A pen going over the lip kicks grit off the edge. */
   fallPuff(x, z) {
     const g = this.biome.ground;

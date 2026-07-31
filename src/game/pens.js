@@ -206,18 +206,3 @@ export const PENS = [
 ];
 
 export const PEN_BY_ID = Object.fromEntries(PENS.map((p) => [p.id, p]));
-
-/** 0..1 bars for the loadout screen, normalised across the roster. */
-export function penStats(spec) {
-  const range = (v, lo, hi) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-  return {
-    // Momentum delivered per unit of flick, i.e. how hard it hits.
-    power: range(spec.massG * (1 + spec.bounce), 5.0, 11.0),
-    // How far it travels on a given flick: light + slippery goes furthest.
-    speed: range(1 / (spec.massG * spec.glide), 0.28, 1.25),
-    // Resistance to being shoved off: mass plus grip.
-    stability: range(spec.massG * 0.09 + spec.glide, 0.55, 1.20),
-    // Barrel reach.
-    reach: range(spec.lengthMm, 136, 147),
-  };
-}
