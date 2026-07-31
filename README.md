@@ -6,7 +6,8 @@ Flick your pen, knock the rival's pen off the ledge, best of three. Man vs compu
 **Play: https://shivam230.github.io/pen-fight-arena/**
 
 Web, mobile-first, **zero downloaded assets** — every arena, texture, sprite and
-sound effect is generated in the browser. ~168 KB gzipped, plus a 46 KB font.
+sound effect is generated in the browser. ~168 KB gzipped, plus 65 KB of self-hosted type (Rajdhani for UI, Anton for the
+wordmark).
 
 ```bash
 npm install
@@ -16,8 +17,9 @@ npm run build    # -> dist/
 
 ## How it plays
 
-Pick a pen on the loadout screen — the arena behind it is live, and the pen turning
-in front of you is the actual 3D model you will fight with.
+Pick a pen on the loadout screen. The arena behind it is live — always the lava
+plateau, lit for staging — and the pen turning in front of you is the actual 3D
+model you will fight with. Swipe the carousel; the centred pen is the equipped one.
 
 Drag back anywhere on screen and let go. The pen flies opposite your drag, and a
 dotted trail shows exactly where it will end up before you commit.
@@ -136,3 +138,8 @@ transparent barrels and only on the top tier.
   column is `minmax(0, 1fr)`.
 - **`scrollIntoView()` scrolls every scrollable ancestor**, including the document.
   Set `scrollLeft` on the rail directly instead.
+- **`clip-path` discards `box-shadow`.** A chamfered button's outer glow has to be
+  a `drop-shadow()` filter, which does follow the clipped shape.
+- **Carousel cards are absolutely positioned**, not a flex row: that is what lets
+  the strip wrap around (so the first pen still has neighbours either side) and
+  lets a long model name overhang a narrow card.
