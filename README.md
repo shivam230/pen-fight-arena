@@ -3,8 +3,10 @@
 The last-bench classic, played on a rock plateau above a two-hundred-metre drop.
 Flick your pen, knock the rival's pen off the ledge, best of three. Man vs computer.
 
+**Play: https://shivam230.github.io/pen-fight-arena/**
+
 Web, mobile-first, **zero downloaded assets** — every arena, texture, sprite and
-sound effect is generated in the browser. ~166 KB gzipped total.
+sound effect is generated in the browser. ~168 KB gzipped, plus a 46 KB font.
 
 ```bash
 npm install
@@ -13,6 +15,9 @@ npm run build    # -> dist/
 ```
 
 ## How it plays
+
+Pick a pen on the loadout screen — the arena behind it is live, and the pen turning
+in front of you is the actual 3D model you will fight with.
 
 Drag back anywhere on screen and let go. The pen flies opposite your drag, and a
 dotted trail shows exactly where it will end up before you commit.
@@ -32,7 +37,7 @@ it carries your own pen over the lip.
 | Best of three; the opener alternates each round | Splits first-mover advantage. |
 | **Overcharge** — power past the 75% mark | Genuinely hits harder *and* genuinely risks your own pen. Physics, not a dice roll. |
 | **The ledge crumbles** after 8 turns without contact | Two pens can never circle each other forever. |
-| **Clean knock** — you win without ever endangering your own pen | Rewards the positional shot over the panic swing. |
+| **Clean knock** — you win without ever endangering your own pen | Rewards the positional shot over the panic swing, and triggers the replay. |
 
 ### The pens
 
@@ -52,6 +57,14 @@ their specs could not be sourced without inventing them. Published dimensions ar
 sparse for this category, so weights and lengths are flagged as estimates in the
 loadout screen.
 
+### The replay
+
+A clean knock you land cuts to a cinematic assembled from the recorded turn: a wide
+establishing pan, a hard cut to a slow-motion POV riding a few centimetres behind
+your barrel, the impact, then a swing outboard to watch the rival's pen go over the
+lip. The surface throws the right spray while your pen slides — amber sparks off
+basalt, water off wet concrete, crystals off glacier ice, grit off sandstone.
+
 ### The arenas
 
 Five biomes, a fresh procedurally-generated plateau every match. The surface you
@@ -68,6 +81,7 @@ src/
     tuning.js    the numbers all three shooters must agree on
     pens.js      the roster
     ai.js        opponent: forward-searches the real solver
+    replay.js    turn recorder + the clean-knock shot list
     match.js     rules, turn flow, input
   render/
     stage.js     renderer, light rig, camera, adaptive quality
@@ -89,10 +103,10 @@ drag is sampled at five points along the barrel, which is what makes a spinning 
 bleed spin and a pen shoved sideways stop faster than one shot along its own axis.
 
 **The AI does not cheat.** It clones the world, runs the real solver forward over
-candidate flicks, scores where everything ends up, and takes the best line. Search
-is sliced across frames so hard difficulty never drops a frame. Difficulty changes
-only how many options it considers and how accurately it executes — never the
-physics. Measured against a reference player: easy 8–2, normal 6–4, hard 2–8.
+candidate flicks, scores where everything ends up, and picks from the best of them.
+Search is sliced across frames so it never drops one. Its handicap is search breadth
+and execution error, never the physics. There is one tuned skill level, measured at
+6–4 in a competent player's favour — winnable, never a walkover.
 
 **Rendering targets a mid-range phone.** Tone mapping is off on the renderer; the
 scene draws into a linear HDR target and ACES is applied exactly once by the
@@ -114,3 +128,11 @@ transparent barrels and only on the top tier.
 - **Colour lift is applied in linear space**, where 0.03 is a heavy wash, not a nudge.
 - **`Match` owns scene objects but not the scene.** Call `dispose()` before building
   another one.
+- **`#title { display: grid }` is an ID selector** and beats a class-level
+  `[hidden] { display: none }`. The hide rules have to be ID-scoped or the loadout
+  screen sits permanently on top of the game.
+- **A grid column defaults to `auto`, i.e. max-content.** The horizontally
+  scrolling pen rail will stretch the whole screen to its scroll width unless the
+  column is `minmax(0, 1fr)`.
+- **`scrollIntoView()` scrolls every scrollable ancestor**, including the document.
+  Set `scrollLeft` on the rail directly instead.
