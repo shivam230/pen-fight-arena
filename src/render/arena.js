@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { Noise, mulberry32 } from './noise.js';
-import { Obstacle } from '../game/physics.js';
+import { Obstacle, RIM_START } from '../game/physics.js';
 import { glowPoints } from './fx.js';
 
 const BASE_RADIUS = 0.62;   // metres — a pen is ~1/9th of the arena, as on a desk
@@ -147,9 +147,12 @@ function buildPlateauTop(biome, noise, boundary) {
       out.lerp(_hi.setHex(g.accent, THREE.SRGBColorSpace),
         Math.min(0.34, drift * g.snow * (0.25 + rim * 0.75)));
     }
-    // Darken the very edge — rock lips are always weathered darker than the field.
-    const lip = Math.max(0, t - 0.88) / 0.12;
-    out.multiplyScalar((0.86 + fine * 0.30) * (1 - lip * 0.20));
+    // Weathered, grit-covered band around the lip. This is not decoration: it
+    // starts exactly where the solver's rim drag starts, so the surface that slows
+    // a pen down is the surface you can see.
+    const lip = Math.max(0, t - RIM_START) / (1 - RIM_START);
+    out.lerp(_hi.setHex(g.low, THREE.SRGBColorSpace), lip * 0.30);
+    out.multiplyScalar((0.86 + fine * 0.30) * (1 - lip * 0.16));
     return { x, y, z };
     // tCurve 1.5 packs the innermost rings against the centre, so the degenerate
     // triangle fan there is millimetres wide and its colour wedges are invisible.
