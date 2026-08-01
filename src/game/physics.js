@@ -19,6 +19,22 @@ const SLEEP_TIME = 0.16; // s below thresholds before we call it settled
 const GRAVITY = 9.81;
 const FRICTION_SAMPLES = 5; // points along the barrel where surface drag is applied
 
+/**
+ * The rim is grippier than the field.
+ *
+ * This is the main thing keeping a rally alive. Without it any pen that crossed
+ * the arena kept its speed all the way to the lip, so most exchanges ended on the
+ * second or third flick. With it, the outer band bleeds speed hard: a pen that
+ * merely drifts out there stops and stays in play, while a genuinely hard, direct
+ * hit still punches straight through. Knockouts have to be earned rather than
+ * stumbled into.
+ *
+ * Physically it reads as weathered, grit-covered rock at the edge, and the
+ * plateau is shaded to match so the band is visible.
+ */
+const RIM_START = 0.70;   // fraction of the local radius where the drag begins
+const RIM_GRIP = 3.4;     // friction multiplier at the very lip
+
 /** Closest points between segments A(a0->a1) and B(b0->b1). Writes into `out`. */
 function closestSegmentPoints(a0x, a0y, a1x, a1y, b0x, b0y, b1x, b1y, out) {
   const dax = a1x - a0x, day = a1y - a0y;
@@ -234,7 +250,15 @@ export class PenWorld {
     // Surface drag sampled along the barrel. Sampling (rather than a single force
     // at the centre of mass) is what makes a spinning pen bleed spin, and what makes
     // a pen shoved sideways stop faster than one shot along its own axis.
-    const mu = p.muSurface * this.surfaceFriction;
+    let rim = 1;
+    const r = Math.hypot(p.x, p.y);
+    if (r > 1e-6) {
+      const t = r / this.edgeRadius(p.x, p.y);
+      if (t > RIM_START) {
+        rim = 1 + Math.min(1, (t - RIM_START) / (1 - RIM_START)) * (RIM_GRIP - 1);
+      }
+    }
+    const mu = p.muSurface * this.surfaceFriction * rim;
     const decel = mu * GRAVITY;
     const share = 1 / FRICTION_SAMPLES;
     const ca = Math.cos(p.a), sa = Math.sin(p.a);
@@ -419,4 +443,4 @@ export class PenWorld {
   }
 }
 
-export { GRAVITY };
+export { GRAVITY, RIM_START, RIM_GRIP };

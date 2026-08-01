@@ -16,19 +16,6 @@ import { PenWorld, Pen } from './physics.js';
 import { impulseFor } from './tuning.js';
 
 /**
- * Difficulty is execution error and search breadth — never a physics advantage.
- *
- * `angleJitter` is the important one. At the ~0.85 m opening range, a lateral miss
- * of about 0.07 m is enough to slide past a pen presented broadside, which works
- * out at roughly 0.08 rad — so anything below that basically always connects and
- * the level stops mattering. Easy is set well above it, hard well below.
- *
- * `pickTop` is how far down its own ranked list the opponent is willing to shoot:
- * 0 means it always plays the best line it found, 0.5 means it picks at random from
- * the better half. That reads as a player who sees the right shot but doesn't
- * always take it, rather than one whose pen mysteriously slips.
- */
-/**
  * The opponent's single skill profile.
  *
  * `angleJitter` is the important number. At the ~0.85 m opening range, a lateral
@@ -45,14 +32,21 @@ import { impulseFor } from './tuning.js';
  */
 export const SKILL = {
   candidates: 24,
-  angleJitter: 0.18,
-  powerJitter: 0.25,
-  pickTop: 0.38,
-  selfRisk: 0.9,
+  // Tuned after the clean-play rules went in. Never fouling removed the opponent's
+  // main way of losing a round, so it had to give ground somewhere to stay
+  // beatable. The give is in CAUTION rather than accuracy: a high selfRisk makes it
+  // prefer safe positional shots over marginal knockout attempts, which reads as a
+  // careful player. Cranking the aim error instead would just make it look broken.
+  angleJitter: 0.24,
+  powerJitter: 0.28,
+  pickTop: 0.55,
+  selfRisk: 1.9,
   horizon: 3.2,
 };
 
-const SIM_STEP = 1 / 120;   // coarser than the live solver; same behaviour, half the cost
+const SIM_STEP = 1 / 120;   // coarse step for the broad search — half the cost
+const VERIFY_STEP = 1 / 240;   // matches the live solver exactly, for the final check
+const VERIFY_HORIZON = 6.0;    // long enough to catch a late creep over the lip
 const SLICE_MS = 6;          // planning budget per frame
 
 export class AiPlanner {
@@ -80,7 +74,7 @@ export class AiPlanner {
    *
    * @returns {{path: number[], hits: boolean, selfOut: boolean, targetOut: boolean}}
    */
-  predictPath(myPen, angle, power, offset = 0, horizon = 2.6) {
+  predictPath(myPen, angle, power, offset = 0, horizon = VERIFY_HORIZON) {
     if (!this._snapshot) this._sync();
     this._restore();
     const c = this._map.get(myPen);
@@ -92,10 +86,15 @@ export class AiPlanner {
     let t = 0, sample = 0, hits = false;
     let selfOut = false, targetOut = false;
 
+    // Runs at the LIVE substep over a long horizon, unlike the AI's broad search.
+    // The preview is a promise to the player, so it has to be exact: at the coarse
+    // step and a 2.6s window it could show a safe shot whose pen then crept over
+    // the lip a moment later, which is precisely the kind of "random physics" this
+    // game is built to avoid. It exits as soon as everything is asleep.
     while (t < horizon) {
-      s._substep(SIM_STEP);
-      t += SIM_STEP;
-      sample += SIM_STEP;
+      s._substep(VERIFY_STEP);
+      t += VERIFY_STEP;
+      sample += VERIFY_STEP;
       if (s.events.length) {
         for (const e of s.events) {
           if (e.type === 'impact') hits = true;
@@ -154,13 +153,13 @@ export class AiPlanner {
    * Run one candidate to rest and score it.
    * Positive is good for the AI.
    */
-  _evaluate(mine, angle, power, offset, horizon) {
+  _evaluate(mine, angle, power, offset, horizon, step = SIM_STEP) {
     this._restore();
     const c = this._map.get(mine);
     // The snapshot can be rebuilt between starting a search and finishing it —
     // a pen going over the edge drops it from the scratch world. Abandon the
     // candidate rather than throwing in the middle of a turn.
-    if (!c) return -Infinity;
+    if (!c) return { score: -Infinity, selfOut: true, targetOut: false };
     // Must be the identical conversion the player's flick uses, or the search is
     // solving a different game than the one being played.
     c.flick(Math.cos(angle), Math.sin(angle), impulseFor(c.spec, power), offset);
@@ -170,8 +169,8 @@ export class AiPlanner {
     let contacted = false;
     let firstContactT = -1;
     while (t < horizon) {
-      s._substep(SIM_STEP);
-      t += SIM_STEP;
+      s._substep(step);
+      t += step;
       if (s.events.length) {
         for (const e of s.events) {
           if (e.type === 'impact') {
@@ -190,12 +189,15 @@ export class AiPlanner {
     }
 
     let score = 0;
+    let selfOut = false;
+    let targetOut = false;
     const selfWeight = this.cfg.selfRisk;
 
     for (const p of s.pens) {
       const isMine = p === c;
       const gone = p.falling || !p.alive;
       if (gone) {
+        if (isMine) selfOut = true; else targetOut = true;
         // Knocking the opponent off wins the round; losing your own loses it.
         score += isMine ? -1000 * selfWeight : 1000;
         continue;
@@ -216,15 +218,19 @@ export class AiPlanner {
     // achieves the same thing is a worse habit and looks worse.
     score -= power * 4;
 
-    return score;
+    return { score, selfOut, targetOut };
   }
 
   /**
    * Start planning a turn.
    * @returns iterator — call `.step()` each frame until it returns a result.
    */
-  begin(myPen, targetPen) {
+  /**
+   * @param {boolean} opening true when this is this side's first flick of the round
+   */
+  begin(myPen, targetPen, opening = false) {
     this._sync();
+    this._opening = opening;
     const cfg = this.cfg;
     const candidates = [];
 
@@ -245,6 +251,14 @@ export class AiPlanner {
     // Always include the straight, medium, centred shot as a sane baseline.
     candidates.push({ angle: bearing, power: 0.55, offset: 0 });
     candidates.push({ angle: bearing, power: 0.85, offset: 0 });
+    // Deliberately timid options. The opponent is forbidden from putting itself
+    // out, so it needs moves that barely travel — including nudging back toward
+    // the middle — or it could find itself with no legal shot at all near the lip.
+    const inward = Math.atan2(-myPen.y, -myPen.x);
+    for (const power of [0.16, 0.26, 0.38]) {
+      candidates.push({ angle: bearing, power, offset: 0 });
+      candidates.push({ angle: inward, power, offset: 0 });
+    }
 
     this._queue = candidates;
     this._scored = [];
@@ -258,27 +272,71 @@ export class AiPlanner {
     const t0 = performance.now();
     while (this._queue.length && performance.now() - t0 < SLICE_MS) {
       const cand = this._queue.pop();
-      cand.score = this._evaluate(
+      const r = this._evaluate(
         this._mine, cand.angle, cand.power, cand.offset, this.cfg.horizon,
       );
+      cand.score = r.score;
+      cand.selfOut = r.selfOut;
+      cand.targetOut = r.targetOut;
       this._scored.push(cand);
     }
     if (this._queue.length) return null;
 
     this._scored.sort((a, b) => b.score - a.score);
+
+    // --- hard rules -------------------------------------------------------
+    // The opponent plays clean. It never puts its own pen over the edge on its
+    // own turn — not by overshooting and not by recoiling off its own hit — and
+    // it never takes the knockout on its opening flick of a round. Both are
+    // filters on simulated outcomes rather than score nudges, so they hold
+    // absolutely instead of "usually".
+    let legal = this._scored.filter((k) => !k.selfOut);
+    if (this._opening) {
+      const restrained = legal.filter((k) => !k.targetOut);
+      if (restrained.length) legal = restrained;
+    }
+    // Fall back gracefully rather than freezing if it is genuinely trapped.
+    if (!legal.length) legal = this._scored;
+
     // Shoot somewhere in the top slice of its own ranking, not always the peak.
-    const span = Math.max(1, Math.round(this._scored.length * this.cfg.pickTop));
-    const chosen = this._scored[(Math.random() * span) | 0] || this._scored[0];
+    const span = Math.max(1, Math.round(legal.length * this.cfg.pickTop));
+    const chosen = legal[(Math.random() * span) | 0] || legal[0];
 
     const jitterA = (Math.random() - 0.5) * 2 * this.cfg.angleJitter;
-    const jitterP = 1 + (Math.random() - 0.5) * 2 * this.cfg.powerJitter;
+    // Aim can wander, but power only ever wanders DOWNWARD. Letting the jitter add
+    // power could turn a verified-safe shot into one that carries its own pen off.
+    const jitterP = 1 - Math.random() * this.cfg.powerJitter;
+
+    let angle = chosen.angle + jitterA;
+    let power = Math.max(0.12, Math.min(1, chosen.power * jitterP));
+
+    // Verify the shot that will ACTUALLY be played.
+    //
+    // The safety filter ran on the un-jittered candidate, and the search runs at
+    // half the live solver's rate. Both mean the executed shot is not quite the one
+    // that was cleared — which is exactly how self-knockouts were still slipping
+    // through. Re-simulate the final angle and power at the live substep, and back
+    // the power off until it is genuinely safe.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      // Longer horizon than the search uses. With the grippy rim a pen can still be
+      // creeping when the 3.2s search window closes, then tip over a moment later —
+      // a self-knockout the search never saw. `_evaluate` exits early once
+      // everything is asleep, so the extra window is almost free.
+      const check = this._evaluate(
+        this._mine, angle, power, chosen.offset, VERIFY_HORIZON, VERIFY_STEP,
+      );
+      if (!check.selfOut && !(this._opening && check.targetOut)) break;
+      power *= 0.68;
+      if (power < 0.12) {
+        // Nothing at this angle is safe; take the meekest nudge toward the middle.
+        const mine = this._mine;
+        angle = Math.atan2(-mine.y, -mine.x);
+        power = 0.16;
+        break;
+      }
+    }
 
     this._queue = null;
-    return {
-      angle: chosen.angle + jitterA,
-      power: Math.max(0.12, Math.min(1, chosen.power * jitterP)),
-      offset: chosen.offset,
-      confidence: chosen.score,
-    };
+    return { angle, power, offset: chosen.offset, confidence: chosen.score };
   }
 }

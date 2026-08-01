@@ -25,8 +25,29 @@ import { impulseFor, OVERCHARGE_AT } from './tuning.js';
 import { TurnRecorder, ReplayDirector } from './replay.js';
 
 const ROUNDS_TO_WIN = 2;         // best of three
-const CALM_TURNS_BEFORE_CRUMBLE = 8;
-const MIN_SHRINK = 0.60;
+
+/**
+ * The ledge starts closing in after this many turns in a round.
+ *
+ * Previously this counted only turns WITHOUT contact, and any hit reset it. Now
+ * that the grippy rim keeps pens on the deck, two players can trade blows
+ * indefinitely without either going over — so a contact-reset timer would never
+ * fire and the round would never end. Counting total turns instead gives a round a
+ * shape: open, rally, then the arena forces a decision.
+ */
+const CRUMBLE_AFTER_TURNS = 8;
+const CRUMBLE_PER_TURN = 0.94;
+const MIN_SHRINK = 0.30;
+
+/**
+ * Absolute ceiling on a round.
+ *
+ * The crumble alone is not a guarantee: two well-matched pens on a grippy rim can
+ * trade hits forever, and a shrink floor would let that run indefinitely. At the
+ * cap the round goes to whoever is holding the middle, which is both a legible
+ * rule and the thing good play was already aiming at.
+ */
+const MAX_TURNS_PER_ROUND = 24;
 const AIM_MAX_POINTS = 220;
 
 const _v = new THREE.Vector3();
@@ -76,7 +97,6 @@ export class Match {
     this._timer = 0;
     this._settleGrace = 0;
     this._shrink = 1;
-    this._calmTurns = 0;
     this._turnInRound = 0;
     this._flickerThisTurn = null;
     this._selfWasSafe = true;
@@ -230,7 +250,9 @@ export class Match {
     const cpu = player + Math.PI;
 
     const place = (pen, theta) => {
-      const R = this.world.boundary(theta) * 0.66;
+      // Well inboard of the grippy rim: the opening should be a rally, not a
+      // pair of pens already teetering on the edge.
+      const R = this.world.boundary(theta) * 0.56;
       // Lie across the line of attack — the way you actually set a pen down.
       pen.setPose(Math.cos(theta) * R, Math.sin(theta) * R, theta + Math.PI / 2);
       pen.alive = true;
@@ -254,7 +276,6 @@ export class Match {
   startRound() {
     this.roundNumber++;
     this._turnInRound = 0;
-    this._calmTurns = 0;
     this._setShrink(1);
     this._placeForRound();
     // The player who did NOT open last round opens this one.
@@ -277,7 +298,8 @@ export class Match {
       this.state = STATE.CPU_THINK;
       this._timer = 0;
       this._readyPlan = null;
-      this._plan = this.ai.begin(this.cpuPen, this.playerPen);
+      // Its own first flick of the round is played as a positioning move.
+      this._plan = this.ai.begin(this.cpuPen, this.playerPen, this._turnInRound <= 1);
       this.emit('turn', { owner: 'cpu', turn: this._turnInRound });
     }
   }
@@ -449,8 +471,6 @@ export class Match {
           this.stage.impactFX.impact(e.x, e.y, e.strength);
           this.stage.shake(e.strength * 0.03);
           this.recorder.noteImpact(e.x, e.y, e.strength);
-          // Any contact resets the crumble countdown — a live fight never shrinks.
-          this._calmTurns = 0;
           break;
         }
         case 'obstacle':
@@ -591,6 +611,29 @@ export class Match {
     }
   }
 
+  /**
+   * Round ran to the cap: award it to the pen nearer the middle, as a fraction of
+   * the local radius rather than raw distance — the arena is not a circle.
+   */
+  _decideOnCentreControl() {
+    const exposure = (pen) => {
+      const r = Math.hypot(pen.x, pen.y);
+      return r / Math.max(1e-6, this.world.edgeRadius(pen.x, pen.y));
+    };
+    const mine = exposure(this.playerPen);
+    const theirs = exposure(this.cpuPen);
+    const winner = mine <= theirs ? 'player' : 'cpu';
+    this.score[winner]++;
+    this._pendingResult = { winner, clean: false, score: this.score, onCentre: true };
+    this.emit('toast', {
+      title: 'Ledge collapsed',
+      body: winner === 'player'
+        ? 'You held the middle. Round yours.'
+        : 'They held the middle. Round theirs.',
+    });
+    this._showRoundResult();
+  }
+
   _rescue(pen) {
     const theta = Math.atan2(pen.y, pen.x);
     const R = this.world.boundary(theta) * 0.80;
@@ -606,17 +649,22 @@ export class Match {
 
   _advanceTurn() {
     this._turnInRound++;
-    this._calmTurns++;
-    if (this._calmTurns >= CALM_TURNS_BEFORE_CRUMBLE) {
-      const next = Math.max(MIN_SHRINK, this._shrink * 0.955);
+
+    if (this._turnInRound >= MAX_TURNS_PER_ROUND) {
+      this._decideOnCentreControl();
+      return;
+    }
+
+    if (this._turnInRound >= CRUMBLE_AFTER_TURNS) {
+      const next = Math.max(MIN_SHRINK, this._shrink * CRUMBLE_PER_TURN);
       if (next !== this._shrink) {
         this._setShrink(next);
         this.stage.shake(0.02);
         audio.clack(0.5, 0);
-        if (this._calmTurns === CALM_TURNS_BEFORE_CRUMBLE) {
+        if (this._turnInRound === CRUMBLE_AFTER_TURNS) {
           this.emit('toast', {
             title: 'The ledge is going',
-            body: 'Too long without contact. The rock is crumbling inward.',
+            body: 'The rock is crumbling inward. Room to miss is running out.',
           });
         }
         this.emit('shrink', { scale: next });
