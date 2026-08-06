@@ -411,7 +411,7 @@ export class ImpactFX {
    * Spray thrown up by a barrel scraping across the surface.
    *
    * What comes off depends on what it is scraping: amber sparks off basalt,
-   * water off wet concrete, ice crystals off the glacier, dust off sandstone.
+   * water off wet concrete, ice crystals off the glacier, grit off granite.
    * `rate` is per-second so the emission stays frame-rate independent — this runs
    * during slow-motion replay, where a per-frame count would look wrong.
    */
@@ -448,7 +448,7 @@ export class ImpactFX {
         size = 0.004 + Math.random() * 0.010;
         up = 0.5 + Math.random() * 1.1;
       } else {
-        // Sandstone / granite: warm grit, with a few genuine sparks off the tip.
+        // Granite: warm grit, with a few genuine sparks off the tip.
         const spark = Math.random() < 0.35;
         r = spark ? 1.0 : 0.82;
         g = spark ? 0.72 : 0.70;

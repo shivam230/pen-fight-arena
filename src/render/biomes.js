@@ -103,38 +103,6 @@ export const BIOMES = [
   },
 
   {
-    id: 'butte',
-    name: 'Jaisalmer Butte',
-    subtitle: 'Sandstone table, an hour before dark',
-    surface: { friction: 0.96, label: 'Fine sandstone' },
-    exposure: 0.98,
-    sky: {
-      zenith: 0x2b4a86, upper: 0x6d7fb0, horizon: 0xd89550,
-      lower: 0xe8b874, ground: 0x9c7746,
-      haze: 0xffd9a0, hazeStrength: 0.30,
-      cloud: 0.45, cloudCut: 0.3, cloudColor: 0xffd6ab,
-      sunAz: 0.34, sunEl: 0.09, sunColor: 0xffcf7a, sunDisc: true,
-    },
-    sun: { color: 0xffca80, intensity: 2.5 },
-    hemi: { sky: 0xffd2a0, ground: 0x6b4b2c, intensity: 0.6 },
-    fog: { color: 0xe8c79a, near: 20, far: 370 },
-    ground: {
-      low: 0x8a6238, mid: 0xb98c53, high: 0xd8b078, accent: 0xf0d9a8,
-      roughness: 0.9,
-    },
-    cliff: { low: 0x5c3f22, high: 0xa8794a, roughness: 0.93 },
-    peaks: {
-      frequency: 0.008,
-      base: 0x9a7042, snowLine: 2.0, snow: 0x000000,
-      height: 92,  radius: 540, cloudSea: 0xdcb888, cloudSeaY: -40,
-    },
-    weather: { type: 'dust', color: 0xe6c79b, count: 260, drift: 1.1 },
-    ambient: 'desert',
-    grade: { lift: [0.0044, 0.0022, -0.0022], gain: [1.06, 1.00, 0.94], sat: 1.18, contrast: 1.26 },
-    bloom: 0.8,
-  },
-
-  {
     id: 'serac',
     name: 'Serac Shelf',
     subtitle: 'Blue ice · nothing here has friction',

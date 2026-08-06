@@ -65,14 +65,14 @@ A clean knock you land cuts to a cinematic assembled from the recorded turn: a w
 establishing pan, a hard cut to a slow-motion POV riding a few centimetres behind
 your barrel, the impact, then a swing outboard to watch the rival's pen go over the
 lip. The surface throws the right spray while your pen slides — amber sparks off
-basalt, water off wet concrete, crystals off glacier ice, grit off sandstone.
+basalt, water off wet concrete, crystals off glacier ice, grit off granite.
 
 ### The arenas
 
-Five biomes, a fresh procedurally-generated plateau every match. The surface you
+Four biomes, a fresh procedurally-generated plateau every match. The surface you
 fight on is a mechanic — glacier ice has half the friction of dry granite:
 
-Dhauladhar Ledge · Basalt Caldera · Monsoon Terrace · Jaisalmer Butte · Serac Shelf
+Dhauladhar Ledge · Basalt Caldera · Monsoon Terrace · Serac Shelf
 
 ## How it's built
 

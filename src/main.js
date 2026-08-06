@@ -13,6 +13,7 @@ import { buildPen } from './render/penMesh.js';
 import { UI } from './ui/hud.js';
 import { BIOMES } from './render/biomes.js';
 import { audio } from './audio/sfx.js';
+import { initNative, setHapticsEnabled, hapticSelect } from './platform/native.js';
 
 // The loadout screen is always staged on the lava plateau — it is the most
 // dramatic backdrop in the set and gives the teal UI something to burn against.
@@ -226,9 +227,14 @@ document.addEventListener('visibilitychange', () => {
 
 ui.on('select', (id) => {
   audio.tick(1500, 0.05);
+  hapticSelect();
   setShowcasePen(id);
 });
-ui.on('mute', (muted) => audio.setMuted(muted));
+// One control for "stop making noise at me" — sound and haptics together.
+ui.on('mute', (muted) => {
+  audio.setMuted(muted);
+  setHapticsEnabled(!muted);
+});
 ui.on('skip', () => match && match.skipReplay());
 
 ui.on('play', async () => {
@@ -288,6 +294,8 @@ function frame(now) {
     ui.showTitle();
   }
   ui.hideBoot();
+  // Drop the native launch image only once there is a real frame behind it.
+  initNative();
 }());
 
 if (import.meta.env?.DEV) {

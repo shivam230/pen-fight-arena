@@ -23,6 +23,7 @@ import { BIOMES } from '../render/biomes.js';
 import { audio } from '../audio/sfx.js';
 import { impulseFor, OVERCHARGE_AT } from './tuning.js';
 import { TurnRecorder, ReplayDirector } from './replay.js';
+import { hapticImpact, hapticKnockout } from '../platform/native.js';
 
 const ROUNDS_TO_WIN = 2;         // best of three
 
@@ -152,7 +153,7 @@ export class Match {
     // Bigger, brighter spaces get a longer tail; the rooftop is tight and damped.
     const space = {
       dhauladhar: [2.6, 0.85, 0.34], caldera: [2.0, 0.45, 0.30],
-      terrace: [1.1, 0.6, 0.22], butte: [1.7, 0.7, 0.26], serac: [3.2, 0.95, 0.38],
+      terrace: [1.1, 0.6, 0.22], serac: [3.2, 0.95, 0.38],
     }[this.biome.id] || [1.8, 0.8, 0.3];
     audio.setSpace(space[0], space[1], space[2]);
 
@@ -468,6 +469,7 @@ export class Match {
       switch (e.type) {
         case 'impact': {
           audio.clack(e.strength, this._panFor(e.x));
+          hapticImpact(e.strength);
           this.stage.impactFX.impact(e.x, e.y, e.strength);
           this.stage.shake(e.strength * 0.03);
           this.recorder.noteImpact(e.x, e.y, e.strength);
@@ -490,6 +492,7 @@ export class Match {
           // impossible to tell whose went over.
           this._slowmo = 1.15;
           this._knockPoint = { x: e.x, z: e.y };
+          hapticKnockout(e.pen.owner === 'player');
           this.emit('knockout', {
             owner: e.pen.owner,
             pen: e.pen.spec.name,
