@@ -18,7 +18,10 @@ export class AudioEngine {
     this.ctx = null;
     this.ready = false;
     this.muted = false;
-    this._lastClack = 0;
+    // -Infinity, not 0: an AudioContext's currentTime also starts at 0, so a zero
+    // here makes the rate-limiter below swallow the very first impact of the
+    // session — the first pen-on-pen hit of a match was silent.
+    this._lastClack = -Infinity;
     this._activeVoices = 0;
     this._ambient = null;
     this._charge = null;
@@ -29,14 +32,22 @@ export class AudioEngine {
    * Must be called synchronously inside a real user gesture — iOS Safari and
    * Chrome mobile both keep the context suspended otherwise.
    */
-  unlock() {
+  /**
+   * @param {BaseAudioContext} [providedCtx] render target. Passing an
+   *   OfflineAudioContext builds the identical graph for bouncing the sounds to
+   *   files (see tools/export-audio.mjs); omit it for normal play.
+   */
+  unlock(providedCtx) {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume();
       return;
     }
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx({ latencyHint: 'interactive' });
+    let ctx = providedCtx;
+    if (!ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      ctx = new Ctx({ latencyHint: 'interactive' });
+    }
     this.ctx = ctx;
 
     this.master = ctx.createGain();
@@ -81,7 +92,7 @@ export class AudioEngine {
     this._buildNoiseBuffers();
     this.setSpace(1.6, 0.9);
     this.ready = true;
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') ctx.resume?.();
   }
 
   _buildNoiseBuffers() {
@@ -188,14 +199,17 @@ export class AudioEngine {
    * climbs 900→1800Hz, the noise transient brightens, and past 0.6 a waveshaper
    * adds the splintery edge that makes a hard hit read as violent.
    */
-  clack(v = 0.5, pan = 0) {
+  clack(v = 0.5, pan = 0, delay = 0) {
     if (!this.ready || this.muted) return;
     const ctx = this.ctx;
-    const now = ctx.currentTime;
+    const now = ctx.currentTime + delay;
     // Rate-limit: rapid contacts within one collision cluster would otherwise
-    // stack into a buzz and blow up the node count.
-    if (now - this._lastClack < 0.018 || this._activeVoices > 14) return;
-    this._lastClack = now;
+    // stack into a buzz and blow up the node count. Scheduled (delayed) hits are
+    // exempt — they are a deliberate sequence, not a cluster.
+    if (delay === 0) {
+      if (now - this._lastClack < 0.018 || this._activeVoices > 14) return;
+      this._lastClack = now;
+    }
     this._activeVoices++;
 
     v = Math.max(0.05, Math.min(1, v));
@@ -292,11 +306,13 @@ export class AudioEngine {
     osc.connect(og); og.connect(lp);
     osc.start(now); osc.stop(now + 0.5);
 
-    // Distant clatter as it hits the rock face on the way down.
+    // Distant clatter as it hits the rock face on the way down. Scheduled on the
+    // audio clock rather than with setTimeout: timers drift under load, and the
+    // whole point of this sequence is its rhythm.
     let delay = 0.18;
     for (let i = 0; i < 4; i++) {
       const v = 0.32 - i * 0.06;
-      setTimeout(() => this.clack(Math.max(0.08, v), pan * 0.7), delay * 1000);
+      this.clack(Math.max(0.08, v), pan * 0.7, delay);
       delay += 0.07 + Math.random() * 0.11;
     }
   }
@@ -384,10 +400,10 @@ export class AudioEngine {
     src.start(now); src.stop(now + 0.2);
   }
 
-  tick(freq = 1800, gain = 0.05) {
+  tick(freq = 1800, gain = 0.05, delay = 0) {
     if (!this.ready || this.muted) return;
     const ctx = this.ctx;
-    const now = ctx.currentTime;
+    const now = ctx.currentTime + delay;
     const out = this._voice(0, 0.08);
     out.gain.setValueAtTime(gain, now);
     out.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
@@ -400,7 +416,7 @@ export class AudioEngine {
 
   confirm() {
     this.tick(660, 0.06);
-    setTimeout(() => this.tick(990, 0.06), 45);
+    this.tick(990, 0.06, 0.045);
   }
 
   /** Two-part tabla-ish hit: low resonant thump plus a bright rim tick. */
