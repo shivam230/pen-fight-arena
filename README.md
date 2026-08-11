@@ -69,10 +69,10 @@ basalt, water off wet concrete, crystals off glacier ice, grit off granite.
 
 ### The arenas
 
-Four biomes, a fresh procedurally-generated plateau every match. The surface you
+Five biomes, a fresh procedurally-generated plateau every match. The surface you
 fight on is a mechanic — glacier ice has half the friction of dry granite:
 
-Dhauladhar Ledge · Basalt Caldera · Monsoon Terrace · Serac Shelf
+Dhauladhar Ledge · Basalt Caldera · Monsoon Terrace · Kaveri Glade · Serac Shelf
 
 ## How it's built
 

@@ -237,12 +237,26 @@ export class Stage {
     cam.updateProjectionMatrix();
   }
 
-  /** Warm the shader cache so the first real frame doesn't hitch. */
+  /**
+   * Warm the shader cache so the first real frame doesn't hitch.
+   *
+   * compileAsync alone is not enough. It compiles the main-pass programs, but the
+   * shadow-depth variants, the extra scene pass that `transmission` materials
+   * force, and every post-processing program are only built the first time they
+   * actually draw — which landed as a multi-second freeze on a cold load, right as
+   * the intro camera started moving. Drawing a few real frames here forces all of
+   * them while the loading screen is still covering the view.
+   */
   async warmup() {
     try {
       await this.renderer.compileAsync(this.scene, this.camera);
     } catch {
       this.renderer.compile(this.scene, this.camera);
+    }
+    for (let i = 0; i < 3; i++) {
+      this.post.render(this.scene, this.camera, 1 / 60);
+      // Yield so the browser can service the compile without a long task.
+      await new Promise((r) => requestAnimationFrame(r));
     }
   }
 
@@ -503,6 +517,12 @@ export class Stage {
   render(dt) {
     this._governor(dt);
     this.updateCamera(dt);
+    // Falling water is a scrolling texture on a billboard — one draw call, and at
+    // 150 m all that reads is the motion anyway.
+    const falls = this.arena?.waterfall;
+    if (falls) {
+      falls.userData.scroll.offset.y -= dt * falls.userData.speed;
+    }
     if (this.weather) this.weather.update(dt, this.camera.position);
     if (this.impactFX) this.impactFX.update(dt, this.camera);
     this.post.render(this.scene, this.camera, dt);

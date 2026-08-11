@@ -103,6 +103,59 @@ export const BIOMES = [
   },
 
   {
+    id: 'glade',
+    name: 'Kaveri Glade',
+    subtitle: 'Deep canopy · the falls are somewhere below',
+    // Damp moss: springy and grippy, the slowest surface in the set. A pen dies
+    // quickly here, so the glade rewards patient nudging over big swings.
+    surface: { friction: 1.22, label: 'Wet moss' },
+    exposure: 1.06,
+    // The jungle look is carried almost entirely by ATMOSPHERE rather than by
+    // geometry: a pale luminous teal behind everything, with each successive
+    // layer of canopy dissolving into it. Hard sun would kill it instantly, so
+    // the light is high, soft and filtered.
+    sky: {
+      zenith: 0x0d3b3a, upper: 0x1f6f66, horizon: 0xbfe8dd,
+      lower: 0xd8f0e4, ground: 0x2f5a3f,
+      haze: 0xd6f2e8, hazeStrength: 0.55,
+      cloud: 0.5, cloudCut: 0.30, cloudColor: 0xeafbf3,
+      sunAz: 0.30, sunEl: 0.52, sunColor: 0xeafff2, sunDisc: false,
+    },
+    sun: { color: 0xdcf7e2, intensity: 1.9 },
+    // Cool teal from the canopy above, deep green bounce from the leaf litter.
+    hemi: { sky: 0x9fe6d4, ground: 0x14301f, intensity: 1.5 },
+    // Aggressive, close fog is the whole trick — it is what separates the layers
+    // of trees and gives the humid depth the reference lives on.
+    fog: { color: 0xbfe4da, near: 8, far: 165 },
+    ground: {
+      low: 0x143a24, mid: 0x28603a, high: 0x448a4e, accent: 0x8fd6a6,
+      roughness: 0.9, snow: 0.22,   // reused as a pale drift: sun-bleached moss
+    },
+    cliff: { low: 0x101f18, high: 0x3c5340, roughness: 0.95 },
+    peaks: {
+      frequency: 0.014,
+      base: 0x1d4433, snowLine: 2.0, snow: 0x000000,
+      height: 104, radius: 430, cloudSea: 0xcfeae0, cloudSeaY: -52,
+    },
+    // Broadleaf canopy masses rather than conifer spikes, packed close so the
+    // near ones read as dark silhouettes and the far ones dissolve into haze.
+    trees: {
+      count: 1200, color: 0x16351f, line: 0.72,
+      minHeight: 9, maxHeight: 26,
+      canopy: true,
+    },
+    waterfall: {
+      azimuth: 2.1, distance: 132, width: 30, height: 74,
+      color: 0xeafffb, speed: 0.55,
+    },
+    // Drifting motes catching the light — the glowing specks in the reference.
+    weather: { type: 'ember', color: 0x9ff0d8, count: 260, drift: 0.5 },
+    ambient: 'falls',
+    grade: { lift: [-0.0033, 0.0044, 0.0011], gain: [0.94, 1.05, 1.00], sat: 1.18, contrast: 1.26 },
+    bloom: 1.0,
+  },
+
+  {
     id: 'serac',
     name: 'Serac Shelf',
     subtitle: 'Blue ice · nothing here has friction',

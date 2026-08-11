@@ -25,6 +25,7 @@ const TOP_SEGS = 120;
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
 const _hi = new THREE.Color();
+const _up = new THREE.Vector3(0, 1, 0);
 
 function lerpColorInto(target, a, b, t) {
   _c.setHex(a, THREE.SRGBColorSpace);
@@ -258,6 +259,26 @@ function buildCliff(biome, noise, boundary) {
   return mesh;
 }
 
+/**
+ * Height of the distant range at a world point, plus how high up the range that
+ * is (0 at the foot, 1 at the nominal peak).
+ *
+ * Shared by the range mesh and anything that has to stand ON it — the treeline
+ * needs the identical function or the trunks float and sink.
+ */
+function peakSurface(biome, noise, x, z) {
+  const p = biome.peaks;
+  const skyline = p.skyline ?? 26;
+  const f = p.frequency || 0.011;
+  const R = Math.hypot(x, z);
+  const ridge = noise.ridged(x * f, z * f, 5) * 0.72
+    + noise.ridged(x * f * 3.1 + 91, z * f * 3.1, 3) * 0.28;
+  const broad = noise.fbm(x * f * 0.32, z * f * 0.32, 4) * 0.5 + 0.5;
+  const rise = THREE.MathUtils.smoothstep(R, 55, 55 + 110);
+  const h = Math.pow(ridge, 1.45) * broad * p.height * rise;
+  return { y: skyline - p.height * 0.6 + h, alt: h / (p.height + 0.001), broad };
+}
+
 function buildPeaks(biome, noise) {
   const p = biome.peaks;
   const skyline = p.skyline ?? 26;   // metres above the arena for the ridge line
@@ -332,6 +353,172 @@ function buildCityLights(biome, rnd) {
     new Float32Array(count).fill(0.85), 1));
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
   return geo;
+}
+
+/**
+ * Conifer silhouettes scattered over the near slopes.
+ *
+ * One InstancedMesh of cones — a few hundred draw as one call, and at this
+ * distance a cone reads as a tree perfectly well. They are placed by sampling the
+ * same height field the range mesh uses, so they sit on the terrain rather than
+ * hovering over it, and thin out with altitude the way a real treeline does.
+ */
+function buildTreeline(biome, noise, rnd) {
+  const t = biome.trees;
+  // Unit-height silhouette standing on the origin, so the y scale below IS the
+  // tree's height in metres. (A 3.1-tall source geometry silently tripled every
+  // tree the first time round.)
+  //
+  // `canopy` swaps the conifer spike for a broadleaf mass. At haze distance the
+  // only thing that survives is the outline, so a squashed low-poly blob on a
+  // stem reads as jungle far better than a cone does — and costs the same.
+  let geo;
+  if (t.canopy) {
+    // Detail 1, not 0: a 20-face blob flat-shades into obvious hexagonal plates.
+    // Still one instanced draw call, so the extra faces are close to free.
+    geo = new THREE.IcosahedronGeometry(0.5, 1);
+    geo.scale(1, 0.74, 1);
+    geo.translate(0, 0.66, 0);
+  } else {
+    geo = new THREE.ConeGeometry(1, 1, 6);
+    geo.translate(0, 0.5, 0);
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color().setHex(t.color, THREE.SRGBColorSpace),
+    roughness: 1, metalness: 0, envMapIntensity: 0.35, flatShading: true,
+  });
+  const inst = new THREE.InstancedMesh(geo, mat, t.count);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  const pos = new THREE.Vector3();
+
+  let placed = 0;
+  for (let i = 0; i < t.count * 4 && placed < t.count; i++) {
+    const theta = rnd() * Math.PI * 2;
+    // Bias inward so the band of trees sits where the eye actually lands.
+    const R = (t.canopy ? 46 : 78) + Math.pow(rnd(), 1.7) * 230;
+    const x = Math.cos(theta) * R, z = Math.sin(theta) * R;
+    const surf = peakSurface(biome, noise, x, z);
+    // Thin out toward the ridge tops — a treeline, not a fur coat.
+    if (surf.alt > t.line && rnd() > 0.15) continue;
+    const h = t.minHeight + rnd() * (t.maxHeight - t.minHeight);
+    pos.set(x, surf.y - 0.6, z);
+    // Broadleaf canopies are wide relative to their height; conifers are narrow.
+    const spread = t.canopy ? (0.62 + rnd() * 0.30) : (0.17 + rnd() * 0.07);
+    const wdt = h * spread;
+    sc.set(wdt, h, wdt);
+    q.setFromAxisAngle(_up, rnd() * Math.PI * 2);
+    m.compose(pos, q, sc);
+    inst.setMatrixAt(placed++, m);
+  }
+  inst.count = placed;
+  inst.instanceMatrix.needsUpdate = true;
+  inst.name = 'treeline';
+  return inst;
+}
+
+let fallsTex = null;
+/** Vertical water streaks; scrolls downward by animating the texture offset. */
+function waterfallTexture() {
+  if (fallsTex) return fallsTex;
+  const W = 128, H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = 'rgba(255,255,255,0.30)';
+  ctx.fillRect(0, 0, W, H);
+  const rnd = mulberry32(99);
+  for (let i = 0; i < 170; i++) {
+    const x = rnd() * W;
+    const w = 1 + rnd() * 4;
+    const y0 = rnd() * H;
+    const len = 60 + rnd() * 300;
+    const g = ctx.createLinearGradient(0, y0, 0, y0 + len);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.4, `rgba(255,255,255,${0.35 + rnd() * 0.5})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y0, w, len);
+    // wrap the tail so the texture tiles vertically without a seam
+    if (y0 + len > H) ctx.fillRect(x, y0 - H, w, len);
+  }
+  fallsTex = new THREE.CanvasTexture(cv);
+  fallsTex.colorSpace = THREE.SRGBColorSpace;
+  fallsTex.wrapS = fallsTex.wrapT = THREE.RepeatWrapping;
+  fallsTex.repeat.set(2, 1.6);
+  return fallsTex;
+}
+
+/**
+ * The falls: a curtain of water on the far ridge with a mist bloom at its foot.
+ *
+ * Deliberately a flat billboard rather than geometry — it sits ~140 m out where
+ * the only thing that reads is the silhouette and the motion, and a scrolling
+ * texture gives that for one draw call.
+ */
+function buildWaterfall(biome, noise, rnd) {
+  const f = biome.waterfall;
+  const group = new THREE.Group();
+  group.name = 'waterfall';
+
+  const theta = f.azimuth;
+  const R = f.distance;
+  const x = Math.cos(theta) * R, z = Math.sin(theta) * R;
+  const foot = peakSurface(biome, noise, x, z).y;
+
+  const geo = new THREE.PlaneGeometry(f.width, f.height);
+  const mat = new THREE.MeshBasicMaterial({
+    map: waterfallTexture(),
+    color: new THREE.Color().setHex(f.color, THREE.SRGBColorSpace),
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: true,
+  });
+  const curtain = new THREE.Mesh(geo, mat);
+  curtain.position.set(x, foot + f.height * 0.42, z);
+  curtain.lookAt(0, curtain.position.y, 0);   // face the arena
+  group.add(curtain);
+
+  // Mist where it lands, plus a soft glow so it reads as spray not a decal.
+  const mistGeo = new THREE.PlaneGeometry(f.width * 2.4, f.height * 0.42);
+  const mistMat = new THREE.MeshBasicMaterial({
+    map: contactBlobTexture(),
+    color: new THREE.Color().setHex(0xdfeef2, THREE.SRGBColorSpace),
+    transparent: true,
+    opacity: 0.5,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const mist = new THREE.Mesh(mistGeo, mistMat);
+  mist.position.set(x, foot + f.height * 0.06, z);
+  mist.lookAt(0, mist.position.y, 0);
+  group.add(mist);
+
+  group.userData.scroll = mat.map;
+  group.userData.speed = f.speed;
+  return group;
+}
+
+let blobTex = null;
+/** Soft radial blob, reused for the falls mist. */
+function contactBlobTexture() {
+  if (blobTex) return blobTex;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.28)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  blobTex = new THREE.CanvasTexture(cv);
+  blobTex.colorSpace = THREE.SRGBColorSpace;
+  return blobTex;
 }
 
 function cloudSeaTexture(color) {
@@ -489,6 +676,12 @@ export function buildArena(seed, biome, world) {
   const hazards = buildHazards(biome, noise, boundary, rnd, ledge, world);
 
   root.add(buildPeaks(biome, noise));
+  if (biome.trees) root.add(buildTreeline(biome, noise, rnd));
+  let waterfall = null;
+  if (biome.waterfall) {
+    waterfall = buildWaterfall(biome, noise, rnd);
+    root.add(waterfall);
+  }
   root.add(buildCloudSea(biome));
   if (biome.peaks.city) root.add(glowPoints(buildCityLights(biome, rnd)));
 
@@ -499,7 +692,7 @@ export function buildArena(seed, biome, world) {
   for (let i = 0; i < 96; i++) extent = Math.max(extent, boundary((i / 96) * Math.PI * 2));
 
   return {
-    root, ledge, boundary, hazards, noise,
+    root, ledge, boundary, hazards, noise, waterfall,
     baseRadius: BASE_RADIUS,
     faceAngle: boundary.faceAngle,
     /** Max radius of the outline — used to fit the shadow camera and the view. */

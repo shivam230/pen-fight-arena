@@ -153,7 +153,7 @@ export class Match {
     // Bigger, brighter spaces get a longer tail; the rooftop is tight and damped.
     const space = {
       dhauladhar: [2.6, 0.85, 0.34], caldera: [2.0, 0.45, 0.30],
-      terrace: [1.1, 0.6, 0.22], serac: [3.2, 0.95, 0.38],
+      terrace: [1.1, 0.6, 0.22], glade: [1.9, 0.45, 0.26], serac: [3.2, 0.95, 0.38],
     }[this.biome.id] || [1.8, 0.8, 0.3];
     audio.setSpace(space[0], space[1], space[2]);
 

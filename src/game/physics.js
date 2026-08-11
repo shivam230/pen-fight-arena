@@ -38,7 +38,15 @@ const FRICTION_SAMPLES = 5; // points along the barrel where surface drag is app
  */
 const STRIKE_COUPLING = 0.34;
 
-/** Sequential-impulse iterations per contact pair per substep. */
+/**
+ * Sequential-impulse iterations per contact pair per substep, for the live world.
+ *
+ * The AI's scratch world overrides this down (see ai.js): its search runs
+ * thousands of simulated substeps per turn and only needs outcomes that are
+ * approximately right, whereas the world the player watches needs to look
+ * correct. Charging full fidelity for both is what made the opponent's thinking
+ * pause janky.
+ */
 const SOLVER_ITERATIONS = 6;
 /** Closing speed below which a bounce is just jitter (m/s). */
 const RESTITUTION_SLOP = 0.12;
@@ -191,6 +199,7 @@ export class PenWorld {
     /** Arena boundary as a radial function of angle; set by the arena generator. */
     this.boundary = () => 1.2;
     this.surfaceFriction = 1.0; // arena-wide multiplier (ice < stone < wet rock)
+    this.solverIterations = SOLVER_ITERATIONS;
     this.events = [];
     this._accum = 0;
     this._segA = { x0: 0, y0: 0, x1: 0, y1: 0 };
@@ -487,7 +496,8 @@ export class PenWorld {
 
     // --- solve ---------------------------------------------------------------
     const tx = -ny, ty = nx;
-    for (let iter = 0; iter < SOLVER_ITERATIONS; iter++) {
+    const iterations = this.solverIterations;
+    for (let iter = 0; iter < iterations; iter++) {
       for (let i = 0; i < count; i++) {
         const k = contacts[i];
 

@@ -46,8 +46,18 @@ export const SKILL = {
 
 const SIM_STEP = 1 / 120;   // coarse step for the broad search — half the cost
 const VERIFY_STEP = 1 / 240;   // matches the live solver exactly, for the final check
-const VERIFY_HORIZON = 6.0;    // long enough to catch a late creep over the lip
-const SLICE_MS = 6;          // planning budget per frame
+const VERIFY_HORIZON = 4.0;    // long enough to catch a late creep over the lip
+/**
+ * Planning budget per frame.
+ *
+ * 6 ms was over a third of a 60 Hz frame and showed as stutter during the
+ * opponent's turn on a phone. The plan simply spreads over a few more frames —
+ * there is a 0.85 s minimum thinking pause anyway, so there is room to spare.
+ */
+const SLICE_MS = 3;
+
+/** Contact iterations while searching. The final shot is re-checked at full. */
+const SEARCH_ITERATIONS = 2;
 
 export class AiPlanner {
   /** @param {PenWorld} liveWorld */
@@ -82,6 +92,9 @@ export class AiPlanner {
     c.flick(Math.cos(angle), Math.sin(angle), impulseFor(c.spec, power), offset);
 
     const s = this.scratch;
+    // Full fidelity: this is ONE simulation shown to the player as a promise, not
+    // one of the thousands the search runs, so it can afford to be exact.
+    s.solverIterations = this.live.solverIterations;
     const path = [];
     let t = 0, sample = 0, hits = false;
     let selfOut = false, targetOut = false;
@@ -115,6 +128,7 @@ export class AiPlanner {
       if (!moving && t > 0.08) break;
     }
     path.push(c.x, c.y);
+    s.solverIterations = SEARCH_ITERATIONS;
     return { path, hits, selfOut, targetOut };
   }
 
@@ -124,6 +138,7 @@ export class AiPlanner {
     s.reset();
     s.boundary = this.live.boundary;
     s.surfaceFriction = this.live.surfaceFriction;
+    s.solverIterations = SEARCH_ITERATIONS;
     s.obstacles = this.live.obstacles;
     this._map.clear();
     for (const p of this.live.pens) {
@@ -322,9 +337,13 @@ export class AiPlanner {
       // creeping when the 3.2s search window closes, then tip over a moment later —
       // a self-knockout the search never saw. `_evaluate` exits early once
       // everything is asleep, so the extra window is almost free.
+      // Verify at the live world's fidelity, not the search's — a shot cleared by
+      // a cheap approximation is not actually cleared.
+      this.scratch.solverIterations = this.live.solverIterations;
       const check = this._evaluate(
         this._mine, angle, power, chosen.offset, VERIFY_HORIZON, VERIFY_STEP,
       );
+      this.scratch.solverIterations = SEARCH_ITERATIONS;
       if (!check.selfOut && !(this._opening && check.targetOut)) break;
       power *= 0.68;
       if (power < 0.12) {

@@ -550,6 +550,17 @@ export class AudioEngine {
         addNoise(this.whiteBuf, 'highpass', 3600, 0.7, 0.045);
         break;
       }
+      case 'falls': {
+        // A waterfall is not rain: no discrete droplet ticks, just a wide
+        // continuous roar with a heavy low body and a slow breathing motion
+        // where the wind moves the spray around.
+        addNoise(this.whiteBuf, 'lowpass', 5200, 0.7, 0.20);
+        const mid = addNoise(this.pinkBuf, 'bandpass', 700, 0.6, 0.22);
+        addLfo(0.08, 240, mid.f.frequency);
+        addLfo(0.05, 0.06, mid.lg.gain);
+        addNoise(this.brownBuf, 'lowpass', 190, 0.8, 0.5);
+        break;
+      }
       case 'rain': {
         addNoise(this.whiteBuf, 'highpass', 2200, 0.7, 0.16);
         const b = addNoise(this.pinkBuf, 'bandpass', 900, 0.8, 0.10);
