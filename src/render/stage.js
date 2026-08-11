@@ -22,6 +22,9 @@ const SHOWCASE_SCALE = 4.4;
 const SHOWCASE_Y = 0.46;
 const SHOWCASE_LENGTH = 0.145 * SHOWCASE_SCALE;
 
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+
 /** Frame-rate independent exponential smoothing. */
 export function damp(current, target, lambda, dt) {
   return target + (current - target) * Math.exp(-lambda * dt);
@@ -306,6 +309,28 @@ export class Stage {
     this._wantLook.set(0, SHOWCASE_Y - 0.01, 0);
     this._fovWant = this._fovBase;
     this._camLambda = 2.4;
+  }
+
+  /**
+   * Unproject a screen point onto the arena floor (y = 0).
+   *
+   * Used to work out which part of the barrel the player just put a finger on.
+   * Returns false when the ray runs parallel to the deck or points at the sky, so
+   * callers can fall back rather than act on a garbage coordinate.
+   */
+  screenToGround(clientX, clientY, out) {
+    const rect = this.canvas.getBoundingClientRect();
+    _ndc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    _ray.setFromCamera(_ndc, this.camera);
+    const dy = _ray.ray.direction.y;
+    if (Math.abs(dy) < 1e-5) return false;
+    const t = -_ray.ray.origin.y / dy;
+    if (t <= 0) return false;
+    out.copy(_ray.ray.origin).addScaledVector(_ray.ray.direction, t);
+    return true;
   }
 
   /** Direct camera control, used by the replay director. */

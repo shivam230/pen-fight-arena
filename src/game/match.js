@@ -366,6 +366,7 @@ export class Match {
         );
         this._predictThrottle -= dt;
         if (this._pendingPredict && this._predictThrottle <= 0) this._runPredict();
+        if (this._drag) this._showStrikePoint(this._drag.offset || 0);
         break;
       }
 
@@ -750,10 +751,50 @@ export class Match {
     this._aimGhost.visible = false;
   }
 
+  /**
+   * A bead on the barrel showing exactly where the flick will land.
+   *
+   * Without it an off-centre strike reads as the physics being erratic rather than
+   * as a choice the player made — the whole mechanic depends on seeing the contact
+   * point before committing.
+   */
+  _buildStrikeMarker() {
+    const geo = new THREE.SphereGeometry(0.011, 16, 12);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x24e8c6,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 7;
+    mesh.visible = false;
+    this._strikeMarker = mesh;
+    return mesh;
+  }
+
+  _showStrikePoint(offset) {
+    const m = this._strikeMarker;
+    if (!m) return;
+    const p = this.playerPen;
+    m.position.set(
+      p.x + Math.cos(p.a) * offset,
+      restHeight(p.spec) + p.rad * 0.9,
+      p.y + Math.sin(p.a) * offset,
+    );
+    m.visible = true;
+  }
+
+  _hideStrikePoint() {
+    if (this._strikeMarker) this._strikeMarker.visible = false;
+  }
+
   attachAimHelpers(scene) {
     this._attachedScene = scene;
     scene.add(this._aimLine);
     scene.add(this._aimGhost);
+    scene.add(this._buildStrikeMarker());
   }
 
   /**
@@ -787,15 +828,43 @@ export class Match {
     this._aimLine.material.dispose();
     this._aimGhost.geometry.dispose();
     this._aimGhost.material.dispose();
+    if (this._strikeMarker) {
+      scene?.remove(this._strikeMarker);
+      this._strikeMarker.geometry.dispose();
+      this._strikeMarker.material.dispose();
+      this._strikeMarker = null;
+    }
 
     this.world.reset();
     this.listeners = {};
   }
 
   /** Screen-space drag → a world-space aim, using the camera's ground basis. */
+  /**
+   * Where you put your finger on the barrel is where you strike it.
+   *
+   * The solver has always been able to take an off-centre impulse — it applies
+   * r x J and gets the rotation right — but the player had no way to ask for one,
+   * so every human flick was dead-centre while the opponent was free to use the
+   * whole barrel. Projecting the touch onto the pen's own axis closes that gap:
+   * catch it near the cap and the cap end leads, catch it mid-barrel and it drives
+   * straight.
+   */
   beginDrag(x, y) {
     if (this.state !== STATE.AIM) return false;
-    this._drag = { x0: x, y0: y, x, y, power: 0, angle: 0 };
+    const pen = this.playerPen;
+    let offset = 0;
+    if (this.stage.screenToGround(x, y, _v)) {
+      // Component of (touch - pen centre) along the barrel, clamped to its length.
+      const along = (_v.x - pen.x) * Math.cos(pen.a) + (_v.z - pen.y) * Math.sin(pen.a);
+      offset = Math.max(-pen.half, Math.min(pen.half, along));
+      // A dead-centre strike is the one thing you can never quite hit by hand, so
+      // give the middle a small snap — otherwise every shot carries a little spin
+      // the player did not ask for.
+      if (Math.abs(offset) < pen.half * 0.16) offset = 0;
+    }
+    this._drag = { x0: x, y0: y, x, y, power: 0, angle: 0, offset };
+    this._showStrikePoint(offset);
     audio.chargeStart();
     return true;
   }
@@ -837,7 +906,7 @@ export class Match {
     const d = this._drag;
     if (!d || d.power < 0.04) { this._hideAim(); return; }
 
-    const result = this.ai.predictPath(this.playerPen, d.angle, d.power, 0);
+    const result = this.ai.predictPath(this.playerPen, d.angle, d.power, d.offset || 0);
     const pts = result.path;
     const n = Math.min(AIM_MAX_POINTS, pts.length / 2);
 
@@ -888,11 +957,12 @@ export class Match {
 
   endDrag() {
     if (!this._drag) return;
-    const { power, angle } = this._drag;
+    const { power, angle, offset } = this._drag;
     this._drag = null;
     audio.chargeStop();
+    this._hideStrikePoint();
     if (power < 0.06) { this._hideAim(); this.emit('aim', null); return; }
-    this.flick(angle, power);
+    this.flick(angle, power, offset || 0);
     this.emit('aim', null);
   }
 
@@ -900,6 +970,7 @@ export class Match {
     if (!this._drag) return;
     this._drag = null;
     audio.chargeStop();
+    this._hideStrikePoint();
     this._hideAim();
     this.emit('aim', null);
   }

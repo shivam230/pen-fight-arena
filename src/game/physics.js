@@ -32,6 +32,17 @@ const FRICTION_SAMPLES = 5; // points along the barrel where surface drag is app
  * Physically it reads as weathered, grit-covered rock at the edge, and the
  * plateau is shaded to match so the band is visible.
  */
+/**
+ * How much of an off-centre strike's theoretical torque actually lands.
+ * See Pen.flick — a fingertip is not a point, and it slips.
+ */
+const STRIKE_COUPLING = 0.34;
+
+/** Sequential-impulse iterations per contact pair per substep. */
+const SOLVER_ITERATIONS = 6;
+/** Closing speed below which a bounce is just jitter (m/s). */
+const RESTITUTION_SLOP = 0.12;
+
 const RIM_START = 0.70;   // fraction of the local radius where the drag begins
 const RIM_GRIP = 3.4;     // friction multiplier at the very lip
 
@@ -139,12 +150,26 @@ export class Pen {
     this.sleepTimer = 0;
   }
 
-  /** Apply a flick: an impulse of `power` N·s at a point `offset` metres along the barrel. */
+  /**
+   * Apply a flick: an impulse of `power` N·s delivered `offset` metres along the
+   * barrel from the centre.
+   *
+   * The lever arm is deliberately scaled by STRIKE_COUPLING. Treating a finger as
+   * a mathematical point delivering a pure impulse to a thin rod is textbook-
+   * correct and completely wrong in practice: a 5 g pen has a moment of inertia of
+   * ~9e-6 kg m², so a hard strike at the very end came out at 15 revolutions per
+   * second. A real fingertip is a wide, soft contact that slips across the barrel
+   * as it goes, so only part of the theoretical angular impulse ever lands. The
+   * scale brings an end-strike to ~5 rev/s, which is what a pen actually does.
+   *
+   * The linear impulse is untouched — only the spin is moderated.
+   */
   flick(dirX, dirY, power, offset = 0) {
     const jx = dirX * power;
     const jy = dirY * power;
-    const rx = Math.cos(this.a) * offset;
-    const ry = Math.sin(this.a) * offset;
+    const lever = offset * STRIKE_COUPLING;
+    const rx = Math.cos(this.a) * lever;
+    const ry = Math.sin(this.a) * lever;
     this.vx += jx * this.invMass;
     this.vy += jy * this.invMass;
     this.w += (rx * jy - ry * jx) * this.invI;
@@ -170,6 +195,12 @@ export class PenWorld {
     this._accum = 0;
     this._segA = { x0: 0, y0: 0, x1: 0, y1: 0 };
     this._segB = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    // Preallocated contact manifold — at most two points for a capsule pair.
+    this._contacts = [0, 1].map(() => ({
+      x: 0, y: 0, rax: 0, ray: 0, rbx: 0, rby: 0,
+      crossAN: 0, crossBN: 0, crossAT: 0, crossBT: 0,
+      massN: 0, massT: 0, pn: 0, pt: 0, bias: 0,
+    }));
   }
 
   add(pen) { this.pens.push(pen); return pen; }
@@ -331,6 +362,66 @@ export class PenWorld {
     });
   }
 
+  /**
+   * Build the contact manifold for two capsules.
+   *
+   * A single contact point is correct for a tip-first or crossed hit, but it is
+   * WRONG for the most common strike in the game: two barrels meeting broadside,
+   * near-parallel. Resolving that at one point lets the struck pen pivot around
+   * that point instead of being driven away bodily — which is exactly why a square
+   * hit used to feel mushy and under-powered.
+   *
+   * When the two barrels are within ~17 degrees of parallel and genuinely overlap
+   * along their length, the contact is generated at BOTH ends of the overlapping
+   * span. The momentum then arrives across the whole contact patch, the way it
+   * does when two pens actually slap together.
+   *
+   * @returns {number} how many contacts were written into `this._contacts`
+   */
+  _buildManifold(a, b, nx, ny, pen, fallbackX, fallbackY) {
+    const c = this._contacts;
+    const cax = Math.cos(a.a), cay = Math.sin(a.a);
+    const cbx = Math.cos(b.a), cby = Math.sin(b.a);
+
+    // sin of the angle between the barrels
+    const skew = Math.abs(cax * cby - cay * cbx);
+    if (skew < 0.30 && a.half > 1e-4) {
+      // Project B's endpoints onto A's axis and clip to A's extent.
+      const b0x = b.x - cbx * b.half, b0y = b.y - cby * b.half;
+      const b1x = b.x + cbx * b.half, b1y = b.y + cby * b.half;
+      let t0 = (b0x - a.x) * cax + (b0y - a.y) * cay;
+      let t1 = (b1x - a.x) * cax + (b1y - a.y) * cay;
+      if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+      t0 = Math.max(-a.half, t0);
+      t1 = Math.min(a.half, t1);
+
+      // Only worth two points if the shared span is a real patch, not a nick.
+      if (t1 - t0 > a.half * 0.35) {
+        // Sit the points mid-way through the overlap depth.
+        const push = a.rad - pen * 0.5;
+        c[0].x = a.x + cax * t0 + nx * push;
+        c[0].y = a.y + cay * t0 + ny * push;
+        c[1].x = a.x + cax * t1 + nx * push;
+        c[1].y = a.y + cay * t1 + ny * push;
+        return 2;
+      }
+    }
+
+    c[0].x = fallbackX;
+    c[0].y = fallbackY;
+    return 1;
+  }
+
+  /**
+   * Resolve a pen-pen collision with sequential impulses over the manifold.
+   *
+   * Iterating (rather than one shot) matters once there are two contacts: solving
+   * them independently in a single pass double-counts, and the pen squirts out
+   * sideways. Accumulated impulses are clamped to stay non-negative so a contact
+   * can never pull the pens together, and restitution is captured from the
+   * approach velocity ONCE up front — recomputing it per iteration injects energy
+   * and makes everything faintly bouncy.
+   */
   _collidePens(a, b) {
     const A = a.endpoints(this._segA);
     const B = b.endpoints(this._segB);
@@ -350,59 +441,107 @@ export class PenWorld {
     }
 
     const pen = minDist - dist;
-    const cx = (_cp.ax + _cp.bx) * 0.5;
-    const cy = (_cp.ay + _cp.by) * 0.5;
+    const count = this._buildManifold(
+      a, b, nx, ny, pen,
+      (_cp.ax + _cp.bx) * 0.5, (_cp.ay + _cp.by) * 0.5,
+    );
 
-    const rax = cx - a.x, ray = cy - a.y;
-    const rbx = cx - b.x, rby = cy - b.y;
-
-    const vax = a.vx - a.w * ray, vay = a.vy + a.w * rax;
-    const vbx = b.vx - b.w * rby, vby = b.vy + b.w * rbx;
-    const rvx = vbx - vax, rvy = vby - vay;
-    const vn = rvx * nx + rvy * ny;
-
-    // Positional correction always runs; impulse only if closing.
     const totalInv = a.invMass + b.invMass;
+    const muC = (a.muContact + b.muContact) * 0.5;
+    const e = Math.min(a.restitution, b.restitution);
+    const contacts = this._contacts;
+
+    // --- prepare: arms, effective masses, restitution bias -------------------
+    let approach = 0;
+    for (let i = 0; i < count; i++) {
+      const k = contacts[i];
+      k.rax = k.x - a.x; k.ray = k.y - a.y;
+      k.rbx = k.x - b.x; k.rby = k.y - b.y;
+      k.pn = 0; k.pt = 0;
+
+      k.crossAN = k.rax * ny - k.ray * nx;
+      k.crossBN = k.rbx * ny - k.rby * nx;
+      k.massN = totalInv
+        + k.crossAN * k.crossAN * a.invI
+        + k.crossBN * k.crossBN * b.invI;
+
+      const tx = -ny, ty = nx;
+      k.crossAT = k.rax * ty - k.ray * tx;
+      k.crossBT = k.rbx * ty - k.rby * tx;
+      k.massT = totalInv
+        + k.crossAT * k.crossAT * a.invI
+        + k.crossBT * k.crossBT * b.invI;
+
+      const vax = a.vx - a.w * k.ray, vay = a.vy + a.w * k.rax;
+      const vbx = b.vx - b.w * k.rby, vby = b.vy + b.w * k.rbx;
+      const vn = (vbx - vax) * nx + (vby - vay) * ny;
+      if (vn < approach) approach = vn;
+      // Below the slop a bounce is indistinguishable from jitter, so drop it.
+      k.bias = vn < -RESTITUTION_SLOP ? e * vn : 0;
+    }
+
+    if (approach >= 0) {
+      this._separate(a, b, nx, ny, pen, totalInv);
+      return;
+    }
+
+    // --- solve ---------------------------------------------------------------
+    const tx = -ny, ty = nx;
+    for (let iter = 0; iter < SOLVER_ITERATIONS; iter++) {
+      for (let i = 0; i < count; i++) {
+        const k = contacts[i];
+
+        // normal
+        let vax = a.vx - a.w * k.ray, vay = a.vy + a.w * k.rax;
+        let vbx = b.vx - b.w * k.rby, vby = b.vy + b.w * k.rbx;
+        const vn = (vbx - vax) * nx + (vby - vay) * ny;
+        let dPn = -(vn + k.bias) / k.massN;
+        const oldPn = k.pn;
+        k.pn = Math.max(0, oldPn + dPn);
+        dPn = k.pn - oldPn;
+        a.vx -= dPn * nx * a.invMass; a.vy -= dPn * ny * a.invMass;
+        a.w -= k.crossAN * dPn * a.invI;
+        b.vx += dPn * nx * b.invMass; b.vy += dPn * ny * b.invMass;
+        b.w += k.crossBN * dPn * b.invI;
+
+        // friction, Coulomb-clamped against the impulse accumulated so far.
+        // This is what turns a glancing blow into spin instead of a clean shove.
+        vax = a.vx - a.w * k.ray; vay = a.vy + a.w * k.rax;
+        vbx = b.vx - b.w * k.rby; vby = b.vy + b.w * k.rbx;
+        const vt = (vbx - vax) * tx + (vby - vay) * ty;
+        let dPt = -vt / k.massT;
+        const maxPt = muC * k.pn;
+        const oldPt = k.pt;
+        k.pt = Math.max(-maxPt, Math.min(maxPt, oldPt + dPt));
+        dPt = k.pt - oldPt;
+        a.vx -= dPt * tx * a.invMass; a.vy -= dPt * ty * a.invMass;
+        a.w -= k.crossAT * dPt * a.invI;
+        b.vx += dPt * tx * b.invMass; b.vy += dPt * ty * b.invMass;
+        b.w += k.crossBT * dPt * b.invI;
+      }
+    }
+
+    this._separate(a, b, nx, ny, pen, totalInv);
+
+    a.wake(); b.wake();
+    let total = 0;
+    for (let i = 0; i < count; i++) total += contacts[i].pn;
+    this.events.push({
+      type: 'impact',
+      x: contacts[0].x, y: contacts[0].y,
+      strength: Math.min(1, -approach / 3.2),
+      normalSpeed: -approach,
+      impulse: total,
+      contacts: count,
+      a, b,
+    });
+  }
+
+  /** Split the overlap between the two bodies by inverse mass. */
+  _separate(a, b, nx, ny, pen, totalInv) {
     const corr = (pen / totalInv) * 0.8;
     a.x -= nx * corr * a.invMass; a.y -= ny * corr * a.invMass;
     b.x += nx * corr * b.invMass; b.y += ny * corr * b.invMass;
-
-    if (vn > 0) return;
-
-    const crossA = rax * ny - ray * nx;
-    const crossB = rbx * ny - rby * nx;
-    const denom = totalInv + crossA * crossA * a.invI + crossB * crossB * b.invI;
-    const e = Math.min(a.restitution, b.restitution);
-    const j = -(1 + e) * vn / denom;
-
-    a.vx -= j * nx * a.invMass; a.vy -= j * ny * a.invMass;
-    a.w -= crossA * j * a.invI;
-    b.vx += j * nx * b.invMass; b.vy += j * ny * b.invMass;
-    b.w += crossB * j * b.invI;
-
-    // Tangential friction — this is what converts an off-centre hit into spin.
-    let tx = -ny, ty = nx;
-    const vt = rvx * tx + rvy * ty;
-    if (Math.abs(vt) > 1e-5) {
-      const crossAT = rax * ty - ray * tx;
-      const crossBT = rbx * ty - rby * tx;
-      const denomT = totalInv + crossAT * crossAT * a.invI + crossBT * crossBT * b.invI;
-      const muC = (a.muContact + b.muContact) * 0.5;
-      let jt = -vt / denomT;
-      jt = Math.max(-muC * j, Math.min(muC * j, jt));
-      a.vx -= jt * tx * a.invMass; a.vy -= jt * ty * a.invMass;
-      a.w -= crossAT * jt * a.invI;
-      b.vx += jt * tx * b.invMass; b.vy += jt * ty * b.invMass;
-      b.w += crossBT * jt * b.invI;
-    }
-
-    a.wake(); b.wake();
-    this.events.push({
-      type: 'impact', x: cx, y: cy,
-      strength: Math.min(1, -vn / 3.2),
-      normalSpeed: -vn,
-      a, b,
-    });
   }
 
   _collideObstacle(p, o) {
