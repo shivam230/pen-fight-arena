@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { PostFX } from './post.js';
 import { buildSkyEnvironment, sunDirection } from './sky.js';
-import { Weather, ImpactFX } from './fx.js';
+import { Weather, ImpactFX, Fauna } from './fx.js';
 
 const TIERS = ['low', 'medium', 'high'];
 
@@ -95,6 +95,7 @@ export class Stage {
     this._sinceAdjust = 0;
 
     this.weather = null;
+    this.fauna = null;
     this.impactFX = null;
     this._showcase = null;
     this.arena = null;
@@ -166,6 +167,7 @@ export class Stage {
     const h = (this.canvas.clientHeight || window.innerHeight) * (this._dpr || 1);
     const scale = h / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     if (this.weather) this.weather.setProjectionScale(scale);
+    if (this.fauna) this.fauna.setProjectionScale(scale);
     if (this.impactFX) this.impactFX.setProjectionScale(scale);
     this._projScale = scale;
     // Anything else that opted into the point shader (the aim trail, city lights).
@@ -215,6 +217,19 @@ export class Stage {
     }
     this.weather = new Weather(biome);
     this.scene.add(this.weather.object);
+
+    // Not every arena is inhabited — the lava caldera and the serac field are
+    // meant to read as places nothing lives, so they simply declare no `life`.
+    if (this.fauna) {
+      this.scene.remove(this.fauna.object);
+      this.fauna.dispose();
+      this.fauna = null;
+    }
+    if (biome.life) {
+      this.fauna = new Fauna(biome.life);
+      this.fauna.setProjectionScale(this._projScale || 900);
+      this.scene.add(this.fauna.object);
+    }
 
     if (this.impactFX) this.impactFX.dispose();   // removes its own scene objects
     this.impactFX = new ImpactFX(this.scene, biome);
@@ -511,6 +526,7 @@ export class Stage {
       falls.userData.scroll.offset.y -= dt * falls.userData.speed;
     }
     if (this.weather) this.weather.update(dt, this.camera.position);
+    if (this.fauna) this.fauna.update(dt);
     if (this.impactFX) this.impactFX.update(dt, this.camera);
     this.post.render(this.scene, this.camera, dt);
   }
@@ -518,6 +534,7 @@ export class Stage {
   dispose() {
     if (this.arena) this.arena.dispose();
     if (this.weather) this.weather.dispose();
+    if (this.fauna) this.fauna.dispose();
     if (this.impactFX) this.impactFX.dispose();
     this.post.dispose();
     this.renderer.dispose();

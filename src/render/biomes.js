@@ -104,6 +104,20 @@ export const BIOMES = [
 
   {
     id: 'glade',
+    // A dozen butterflies working the canopy edge. The brief was "very subtle,
+    // not loud", so: they orbit outside the plateau, they are 1.5 cm against a
+    // 14 cm pen, and the count is deliberately a dozen rather than a swarm.
+    life: {
+      kind: 'butterfly', count: 12,
+      color: 0xfff4d2, color2: 0xa8f0d8,
+      // Tuned against the camera, not by eye: at a 0.62 m plateau and a camera
+      // ~2.7 m out, an orbit of 1.1-2.6 m put ten of the twelve outside the
+      // frustum entirely. This band sits just off the lip, where they cross the
+      // frame without ever flying over the pens.
+      radius: [0.72, 1.45], height: [0.05, 0.44],
+      speed: [0.09, 0.22], flutter: [11, 17],
+      size: [0.015, 0.027], alpha: [0.38, 0.64],
+    },
     name: 'Kaveri Glade',
     subtitle: 'Deep canopy · the falls are somewhere below',
     // Damp moss: springy and grippy, the slowest surface in the set. A pen dies

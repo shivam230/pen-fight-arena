@@ -390,11 +390,16 @@ function buildTreeline(biome, noise, rnd) {
     geo = new THREE.ConeGeometry(1, 1, 6);
     geo.translate(0, 0.5, 0);
   }
+  // White base, because the real colour goes in the per-instance attribute below
+  // (three multiplies material.color by instanceColor, so leaving the tint here
+  // would double it).
   const mat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setHex(t.color, THREE.SRGBColorSpace),
+    color: 0xffffff,
     roughness: 1, metalness: 0, envMapIntensity: 0.35, flatShading: true,
   });
   const inst = new THREE.InstancedMesh(geo, mat, t.count);
+  const baseTint = new THREE.Color().setHex(t.color, THREE.SRGBColorSpace);
+  const tint = new THREE.Color();
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
@@ -417,10 +422,23 @@ function buildTreeline(biome, noise, rnd) {
     sc.set(wdt, h, wdt);
     q.setFromAxisAngle(_up, rnd() * Math.PI * 2);
     m.compose(pos, q, sc);
+
+    // Per-instance tint. A thousand trees sharing one exact green is the single
+    // loudest "this is computer graphics" signal a treeline can send — a real
+    // canopy is a mess of species, age and sun exposure. Hue wanders slightly,
+    // lightness a lot more, and shorter trees sit darker because they are the
+    // ones living in someone else's shade.
+    tint.copy(baseTint);
+    const shade = 0.66 + ((h - t.minHeight) / (t.maxHeight - t.minHeight)) * 0.30;
+    tint.offsetHSL((rnd() - 0.5) * 0.06, (rnd() - 0.5) * 0.22, 0);
+    tint.multiplyScalar(shade * (0.86 + rnd() * 0.30));
+    inst.setColorAt(placed, tint);
+
     inst.setMatrixAt(placed++, m);
   }
   inst.count = placed;
   inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   inst.name = 'treeline';
   return inst;
 }

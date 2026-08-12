@@ -20,6 +20,17 @@ import { initNative, setHapticsEnabled, hapticSelect } from './platform/native.j
 // Matches still roll a random biome.
 const LOADOUT_BIOME = Math.max(0, BIOMES.findIndex((b) => b.id === 'caldera'));
 const randomSeed = () => (Math.random() * 1e8) | 0;
+
+/**
+ * Dev-only arena override: `?biome=glade` pins every match to one arena.
+ *
+ * Matches roll a random biome, so eyeballing a change to one of them meant
+ * restarting until it came up. Guarded by import.meta.env.DEV, so the whole
+ * lookup is dropped from a production build.
+ */
+const FORCED_BIOME = import.meta.env.DEV
+  ? BIOMES.findIndex((b) => b.id === new URLSearchParams(location.search).get('biome'))
+  : -1;
 const seedForBiome = (i) => randomSeed() * BIOMES.length + i;
 
 const canvas = document.getElementById('stage');
@@ -83,7 +94,8 @@ async function buildMatch({ hold = false, biome = null } = {}) {
   match = new Match(stage, { playerPen: ui.selectedPen, cpuPen: cpuId });
   match.attachAimHelpers(stage.scene);
   wireMatch(match, cpuId);
-  await match.newMatch(biome === null ? randomSeed() : seedForBiome(biome));
+  const pick = biome === null && FORCED_BIOME >= 0 ? FORCED_BIOME : biome;
+  await match.newMatch(pick === null ? randomSeed() : seedForBiome(pick));
   if (hold) match.holdForLoadout();
   return match;
 }

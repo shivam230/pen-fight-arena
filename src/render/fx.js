@@ -39,6 +39,33 @@ function sprite(kind) {
     g.addColorStop(1, 'rgba(255,90,20,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, S, S);
+  } else if (kind === 'wing') {
+    // Butterfly, seen from wherever you happen to be standing: two soft wing
+    // lobes with a hairline body. At the size these are drawn (~1.5 cm against a
+    // 14 cm pen) no one resolves the shape — what registers is a small pale
+    // thing with a waist, which is enough for the eye to call it alive rather
+    // than call it dust. Feathered hard, because a crisp sprite this small
+    // sparkles horribly when it moves.
+    const lobe = (cx, cy, rx, ry, a) => {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(rx, ry));
+      g.addColorStop(0, `rgba(255,255,255,${a})`);
+      g.addColorStop(0.55, `rgba(255,255,255,${a * 0.55})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(rx, ry), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    lobe(S * 0.34, S * 0.40, S * 0.20, S * 0.24, 0.95);   // upper wings
+    lobe(S * 0.66, S * 0.40, S * 0.20, S * 0.24, 0.95);
+    lobe(S * 0.37, S * 0.63, S * 0.15, S * 0.17, 0.75);   // lower wings
+    lobe(S * 0.63, S * 0.63, S * 0.15, S * 0.17, 0.75);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(S * 0.485, S * 0.30, S * 0.03, S * 0.40);
   } else {
     // Soft dot — snow, dust, debris. A feathered edge is what lets additive
     // particles intersect geometry without a hard seam, no depth texture needed.
@@ -281,6 +308,108 @@ export class Weather {
       if (dz > hz) pos[i3 + 2] -= this.box.z; else if (dz < -hz) pos[i3 + 2] += this.box.z;
     }
     this.cloud.geo.attributes.position.needsUpdate = true;
+  }
+
+  setProjectionScale(v) { this.cloud.mat.uniforms.uScale.value = v; }
+
+  dispose() { this.cloud.dispose(); }
+}
+
+/**
+ * Fauna — the small moving life that makes a place feel inhabited.
+ *
+ * Deliberately NOT part of Weather. Weather falls or rises in a straight line and
+ * wraps around a box; anything alive moves on its own terms, and the difference
+ * between the two is exactly what the eye uses to tell them apart. Reusing the
+ * weather integrator for butterflies would have produced drifting confetti.
+ *
+ * Two rules keep it subtle, which is the whole brief:
+ *   · nothing flies over the plateau. Everything orbits OUTSIDE the play radius,
+ *     so it is always in the corner of your eye and never over the pens you are
+ *     reading. This is a gameplay constraint before it is an aesthetic one.
+ *   · numbers are tiny — a dozen butterflies for a whole arena. Life reads as
+ *     life at low density; at high density it reads as a particle effect.
+ *
+ * One draw call, one preallocated buffer set, no per-frame allocation.
+ */
+export class Fauna {
+  constructor(spec) {
+    this.spec = spec;
+    this.kind = spec.kind;
+    const n = spec.count;
+
+    this.cloud = new PointCloud(n, 'wing', false);
+    this.object = this.cloud.points;
+    this.object.frustumCulled = false;
+
+    // Per-individual state. Each carries its own phase so no two are ever in
+    // step — synchronised motion is the fastest way to make a crowd look
+    // computed rather than alive.
+    this.angle = new Float32Array(n);
+    this.radius = new Float32Array(n);
+    this.height = new Float32Array(n);
+    this.speed = new Float32Array(n);
+    this.phase = new Float32Array(n);
+    this.flutter = new Float32Array(n);
+    this.baseSize = new Float32Array(n);
+
+    const c = new THREE.Color().setHex(spec.color, THREE.SRGBColorSpace);
+    const c2 = new THREE.Color().setHex(spec.color2 ?? spec.color, THREE.SRGBColorSpace);
+    const { size, alpha, color } = this.cloud;
+
+    for (let i = 0; i < n; i++) {
+      this.angle[i] = Math.random() * Math.PI * 2;
+      this.radius[i] = spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
+      this.height[i] = spec.height[0] + Math.random() * (spec.height[1] - spec.height[0]);
+      // Half go clockwise. A flock all turning the same way looks like a carousel.
+      this.speed[i] = (spec.speed[0] + Math.random() * (spec.speed[1] - spec.speed[0]))
+        * (Math.random() < 0.5 ? -1 : 1);
+      this.phase[i] = Math.random() * Math.PI * 2;
+      this.flutter[i] = spec.flutter[0] + Math.random() * (spec.flutter[1] - spec.flutter[0]);
+      this.baseSize[i] = spec.size[0] + Math.random() * (spec.size[1] - spec.size[0]);
+
+      const t = Math.random();
+      color[i * 3] = c.r + (c2.r - c.r) * t;
+      color[i * 3 + 1] = c.g + (c2.g - c.g) * t;
+      color[i * 3 + 2] = c.b + (c2.b - c.b) * t;
+      size[i] = this.baseSize[i];
+      alpha[i] = spec.alpha[0] + Math.random() * (spec.alpha[1] - spec.alpha[0]);
+    }
+    this.cloud.flush();
+    this._t = 0;
+  }
+
+  update(dt) {
+    this._t += dt;
+    const { pos, size } = this.cloud;
+    const n = this.cloud.count;
+
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      this.angle[i] += this.speed[i] * dt;
+      const ph = this.phase[i];
+
+      // Butterflies do not fly in circles — they bumble. Two out-of-phase sines
+      // on the radius mean the path never visibly repeats and never reads as an
+      // orbit.
+      const wobbleR = Math.sin(this._t * 0.6 + ph) * 0.18
+        + Math.sin(this._t * 1.31 + ph * 2.1) * 0.09;
+      const r = this.radius[i] + wobbleR;
+      pos[i3] = Math.cos(this.angle[i]) * r;
+      pos[i3 + 2] = Math.sin(this.angle[i]) * r;
+      // The bob is the tell. Real butterflies rise and drop constantly, and
+      // without it they read as floating seeds.
+      pos[i3 + 1] = this.height[i]
+        + Math.sin(this._t * 2.3 + ph) * 0.07
+        + Math.sin(this._t * 5.7 + ph * 1.7) * 0.025;
+      // Wing-beat, faked by pumping the sprite's width. A screen-aligned point
+      // cannot rotate, but a size oscillating at wingbeat frequency gives the
+      // same flicker for a single multiply.
+      const beat = 0.62 + 0.38 * Math.abs(Math.sin(this._t * this.flutter[i] + ph));
+      size[i] = this.baseSize[i] * beat;
+    }
+    this.cloud.geo.attributes.position.needsUpdate = true;
+    this.cloud.geo.attributes.aSize.needsUpdate = true;
   }
 
   setProjectionScale(v) { this.cloud.mat.uniforms.uScale.value = v; }
