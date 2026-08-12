@@ -39,10 +39,6 @@ if (dirty) {
   process.exit(1);
 }
 
-const who = {
-  name: run('git config user.name') || 'Pen Fight deploy',
-  email: run('git config user.email') || 'deploy@local',
-};
 const sha = run('git rev-parse --short HEAD');
 const branch = run('git rev-parse --abbrev-ref HEAD');
 log(`deploying ${branch} @ ${sha}`);
@@ -85,12 +81,12 @@ try {
   writeFileSync(join(wt, '.nojekyll'), '');
 
   run('git add -A', wt);
-  // Identity is resolved here, in the main repo, and passed in explicitly. A
-  // `$(git config user.name)` substitution evaluated inside the worktree came
-  // back empty and aborted the commit.
-  run(`git -c user.name=${JSON.stringify(who.name)} `
-    + `-c user.email=${JSON.stringify(who.email)} `
-    + `commit -q -m "deploy ${sha}"`, wt);
+  // No `-c user.name=…` here on purpose. This machine has no user.name or
+  // user.email set at any scope — git derives the identity from the system
+  // account and hostname, which is what every commit in this repo already uses.
+  // Passing the flags explicitly substituted EMPTY strings and overrode that,
+  // which is what produced "empty ident name (for <>) not allowed".
+  run(`git commit -q -m "deploy ${sha}"`, wt);
   log('pushing to gh-pages…');
   run('git push --force origin HEAD:gh-pages', wt);
 } finally {
