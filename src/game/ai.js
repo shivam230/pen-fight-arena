@@ -62,6 +62,8 @@ const SEARCH_ITERATIONS = 2;
 export class AiPlanner {
   /** @param {PenWorld} liveWorld */
   constructor(liveWorld) {
+    this.safetyMargin = 1;
+    this._verify = null;
     this.live = liveWorld;
     this.cfg = SKILL;
     this.scratch = new PenWorld();
@@ -73,6 +75,23 @@ export class AiPlanner {
    * both the AI search and the player's aim preview then replay from this snapshot.
    */
   sync() { this._sync(); }
+
+  /**
+   * How much of the ledge will still be there when this pen next matters.
+   *
+   * The rival is forbidden from putting itself over the edge, and it enforced
+   * that by checking its pen against the ledge AS IT IS AT PLAN TIME. But the
+   * ledge crumbles inward between turns: a pen parked at 95% of the radius is
+   * safe when the shot is played and standing on nothing two turns later, which
+   * read as the rival fouling even though its search had been perfectly correct
+   * about the world it was shown. Passing the projected ratio here lets it
+   * reject shots that are only safe until the rock goes.
+   *
+   * 1 means the arena is not shrinking and the whole deck is usable.
+   */
+  setSafetyMargin(ratio) {
+    this.safetyMargin = Math.max(0.5, Math.min(1, ratio || 1));
+  }
 
   /**
    * Replay a candidate flick and hand back the path it traces.
@@ -221,6 +240,12 @@ export class AiPlanner {
       const r = Math.hypot(p.x, p.y);
       const edge = s.edgeRadius(p.x, p.y);
       const exposure = r / edge; // 0 centre, 1 at the lip
+      // Ground that is about to crumble away counts as no ground at all.
+      if (isMine && exposure >= this.safetyMargin) {
+        selfOut = true;
+        score += -1000 * selfWeight;
+        continue;
+      }
       score += isMine ? -exposure * 120 * selfWeight : exposure * 150;
     }
 
@@ -278,11 +303,13 @@ export class AiPlanner {
     this._queue = candidates;
     this._scored = [];
     this._mine = myPen;
+    this._verify = null;
     return this;
   }
 
   /** Advance the search for up to SLICE_MS. Returns a plan when finished. */
   step() {
+    if (this._verify) return this._stepVerify();
     if (!this._queue) return null;
     const t0 = performance.now();
     while (this._queue.length && performance.now() - t0 < SLICE_MS) {
@@ -325,37 +352,84 @@ export class AiPlanner {
     let angle = chosen.angle + jitterA;
     let power = Math.max(0.12, Math.min(1, chosen.power * jitterP));
 
-    // Verify the shot that will ACTUALLY be played.
-    //
-    // The safety filter ran on the un-jittered candidate, and the search runs at
-    // half the live solver's rate. Both mean the executed shot is not quite the one
-    // that was cleared — which is exactly how self-knockouts were still slipping
-    // through. Re-simulate the final angle and power at the live substep, and back
-    // the power off until it is genuinely safe.
-    for (let attempt = 0; attempt < 4; attempt++) {
-      // Longer horizon than the search uses. With the grippy rim a pen can still be
-      // creeping when the 3.2s search window closes, then tip over a moment later —
-      // a self-knockout the search never saw. `_evaluate` exits early once
-      // everything is asleep, so the extra window is almost free.
-      // Verify at the live world's fidelity, not the search's — a shot cleared by
-      // a cheap approximation is not actually cleared.
-      this.scratch.solverIterations = this.live.solverIterations;
-      const check = this._evaluate(
-        this._mine, angle, power, chosen.offset, VERIFY_HORIZON, VERIFY_STEP,
-      );
-      this.scratch.solverIterations = SEARCH_ITERATIONS;
-      if (!check.selfOut && !(this._opening && check.targetOut)) break;
-      power *= 0.68;
-      if (power < 0.12) {
-        // Nothing at this angle is safe; take the meekest nudge toward the middle.
-        const mine = this._mine;
-        angle = Math.atan2(-mine.y, -mine.x);
-        power = 0.16;
-        break;
-      }
+    // Hand the chosen shot to the verifier, which runs on later frames.
+    this._queue = null;
+    this._verify = {
+      angle, power, offset: chosen.offset, confidence: chosen.score, attempt: 0,
+    };
+    return null;
+  }
+
+  /**
+   * Verify the shot that will ACTUALLY be played — one attempt per frame.
+   *
+   * The safety filter ran on the un-jittered candidate and the search runs at a
+   * third of the live solver's rate, so the executed shot is never quite the one
+   * that was cleared. This re-simulates the final angle and power at live
+   * fidelity and backs the power off until it is genuinely safe.
+   *
+   * It is sliced across frames for the same reason the search is: a verify pass
+   * is a 4-second simulation at 1/240 with the full iteration count, and running
+   * four of them back-to-back inside one frame was a measurable 41 ms hitch —
+   * visible as the rival "hanging" before it moved.
+   */
+  _stepVerify() {
+    const v = this._verify;
+    const live = this.live.solverIterations;
+    this.scratch.solverIterations = live;
+    const check = this._evaluate(
+      this._mine, v.angle, v.power, v.offset, VERIFY_HORIZON, VERIFY_STEP,
+    );
+    this.scratch.solverIterations = SEARCH_ITERATIONS;
+
+    if (!check.selfOut && !(this._opening && check.targetOut)) {
+      this._verify = null;
+      return { angle: v.angle, power: v.power, offset: v.offset, confidence: v.confidence };
     }
 
-    this._queue = null;
-    return { angle, power, offset: chosen.offset, confidence: chosen.score };
+    v.attempt++;
+    // Phase 1: same shot, softer. Four goes.
+    if (v.attempt < 4) {
+      v.power *= 0.68;
+      if (v.power >= 0.12) return null;
+      v.attempt = 4;
+    }
+
+    // Phase 2: nothing at this angle is safe. Fall back toward the middle.
+    //
+    // The power to use depends entirely on WHY nothing was safe, and getting this
+    // backwards was itself a source of fouls. Two different situations:
+    //
+    //   · the pen is outside the ledge it will face, and needs real travel to get
+    //     back inside — too soft a nudge leaves it exactly where it was;
+    //   · the ledge has simply shrunk so far (by turn ~15 it is a third of its
+    //     original radius) that NO shot keeps the pen on. Here the pen is often
+    //     sitting safely in the middle, and the right move is the gentlest touch
+    //     that still counts as a turn.
+    //
+    // The old escalation always reached for more power, so a centred pen on a
+    // tiny arena got launched off by a 0.66 retreat it never needed.
+    const mine = this._mine;
+    const exposure = Math.hypot(mine.x, mine.y)
+      / (this.live.edgeRadius(mine.x, mine.y) || 1);
+    const needsTravel = exposure >= this.safetyMargin;
+    const RETREAT = needsTravel ? [0.30, 0.44, 0.58, 0.72] : [0.12, 0.15, 0.19, 0.24];
+    const i = v.attempt - 4;
+    if (i < RETREAT.length) {
+      v.angle = Math.atan2(-mine.y, -mine.x);
+      v.offset = 0;
+      v.power = RETREAT[i];
+      return null;
+    }
+
+    // Out of options. Play the SOFTEST retreat, not the hardest — least energy is
+    // the least likely to carry the pen off a ledge this small.
+    this._verify = null;
+    return {
+      angle: Math.atan2(-mine.y, -mine.x),
+      power: RETREAT[0],
+      offset: 0,
+      confidence: -Infinity,
+    };
   }
 }

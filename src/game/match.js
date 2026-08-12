@@ -295,10 +295,25 @@ export class Match {
       this.state = STATE.CPU_THINK;
       this._timer = 0;
       this._readyPlan = null;
+      // Two turns of lookahead: the ledge crumbles once before the player's turn
+      // and again before the rival's next one, so a shot is only genuinely safe
+      // if the pen is still on rock after both.
+      this.ai.setSafetyMargin(this._projectedShrink(2) / this._shrink);
       // Its own first flick of the round is played as a positioning move.
       this._plan = this.ai.begin(this.cpuPen, this.playerPen, this._turnInRound <= 1);
       this.emit('turn', { owner: 'cpu', turn: this._turnInRound });
     }
+  }
+
+  /** What `_shrink` will be `turnsAhead` turns from now, per `_advanceTurn`. */
+  _projectedShrink(turnsAhead) {
+    let k = this._shrink;
+    let turn = this._turnInRound;
+    for (let i = 0; i < turnsAhead; i++) {
+      turn++;
+      if (turn >= CRUMBLE_AFTER_TURNS) k = Math.max(MIN_SHRINK, k * CRUMBLE_PER_TURN);
+    }
+    return k;
   }
 
   _setShrink(k) {
@@ -306,6 +321,36 @@ export class Match {
     const base = this._baseBoundary;
     this.world.boundary = (theta) => base(theta) * k;
     this.arena.ledge.scale.setScalar(k);
+
+    // The collapsing rim carries pens inward instead of deleting them.
+    //
+    // Without this the crumble silently kills whichever pen happens to be nearest
+    // the lip, on nobody's turn, with no shot involved. It reads as the rival
+    // falling off by itself — and when it happens to the player it is worse still,
+    // a round lost while they were watching. The crumble exists to take away ROOM,
+    // not to take pens, and the turn cap is what actually ends a stalemate.
+    for (const p of this.world.pens) {
+      if (!p.alive || p.falling) continue;
+      const theta = Math.atan2(p.y, p.x);
+      const edge = this.world.boundary(theta);
+      const r = Math.hypot(p.x, p.y);
+      if (r <= edge * CRUMBLE_PER_TURN) continue;
+      // Land it inside the TWO-crumble horizon, not just inside today's rim.
+      // Pulling to 0.90 puts the pen back in the path of the next collapse and
+      // it gets shunted again; 0.94^2 = 0.884 is the radius that survives both,
+      // which is the same lookahead the rival plans against (ai.setSafetyMargin).
+      const safeFrac = CRUMBLE_PER_TURN * CRUMBLE_PER_TURN * 0.97;
+      const pull = (edge * safeFrac) / (r || 1);
+      p.x *= pull;
+      p.y *= pull;
+      p.wake();
+      this.emit('toast', {
+        title: 'The rim went',
+        body: p === this.playerPen
+          ? 'Your pen slid in with the collapse. Less room now.'
+          : 'The rival slid in with the collapse.',
+      });
+    }
     // Hazards are baked into the ledge, so their collision bodies scale with it.
     this.world.obstacles.forEach((o, i) => {
       const b = this._baseObstacles[i];

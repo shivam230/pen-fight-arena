@@ -26,6 +26,11 @@ const canvas = document.getElementById('stage');
 const stage = new Stage(canvas);
 stage.applyTier(stage.detectTier());
 
+// Dev-only handle for inspecting the live renderer from the console — frame-time
+// ring buffer, tier, draw calls. `import.meta.env.DEV` is statically false in a
+// production build, so this whole statement is dropped by the bundler.
+if (import.meta.env.DEV) window.__pf = { stage, get match() { return match; } };
+
 const ui = new UI();
 let match = null;
 let showcase = null;

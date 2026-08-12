@@ -28,7 +28,11 @@ function paintSky(sky, seed) {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
-  const ctx = canvas.getContext('2d');
+  // Flagged for readback: the horizon-glow pass below calls getImageData on this
+  // canvas, and without the hint Chrome keeps it GPU-backed and stalls the
+  // pipeline on every read — the browser warns about it by name. It costs
+  // nothing here because this canvas is drawn once at boot and then uploaded.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const noise = new Noise(seed ^ 0x5bd1);
   const rnd = mulberry32(seed ^ 0x9e37);
 
