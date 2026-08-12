@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="description"
+        content="Pen Fight — the desk game, on a mountain ledge. Flick your pen, knock theirs off." />
+  <title>PEN FIGHT</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🖊️</text></svg>" />
+  <script type="module" crossorigin src="./assets/index-BBEMp580.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B7a9tJbe.css">
+</head>
+<body>
+  <canvas id="stage" aria-label="Pen fight arena"></canvas>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="hud" hidden>
+    <header class="hud-top">
+      <div class="side side--player glass">
+        <span class="side-name" id="hud-player-name">You</span>
+        <div class="pips" id="hud-player-pips" role="img" aria-label="Your rounds won"></div>
+      </div>
+      <div class="side side--cpu glass">
+        <span class="side-name" id="hud-cpu-name">Rival</span>
+        <div class="pips" id="hud-cpu-pips" role="img" aria-label="Rival rounds won"></div>
+      </div>
+    </header>
+
+    <div class="biome-row">
+      <div class="biome-chip glass">
+        <b id="hud-round">Round 1</b>
+        <span id="hud-biome">—</span>
+        <em id="hud-surface">—</em>
+      </div>
+    </div>
+
+    <div class="toast-slot" id="toast-slot" aria-live="polite"></div>
+
+    <div class="knockout" id="knockout" aria-live="assertive">
+      <div class="knockout-card">
+        <span class="knockout-tag" id="knockout-tag">Rival pen</span>
+        <strong id="knockout-title">Knocked off</strong>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div class="turn-banner glass" id="turn-banner">
+        <strong id="turn-title">Your turn</strong>
+        <span id="turn-hint">Drag back anywhere, then let go</span>
+      </div>
+      <div class="power glass" id="power" hidden>
+        <div class="power-track">
+          <div class="power-fill" id="power-fill"></div>
+          <div class="power-safe" aria-hidden="true"></div>
+        </div>
+        <div class="power-read" id="power-read">0%</div>
+      </div>
+    </div>
+
+    <button class="icon-btn glass" id="btn-sound" aria-label="Mute sound">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9.5v5h3.2L12 18.6V5.4L7.2 9.5H4Z" fill="currentColor" stroke="none" />
+        <g class="speaker-waves">
+          <path d="M15.6 9.2a4 4 0 0 1 0 5.6" />
+          <path d="M18.2 6.6a7.6 7.6 0 0 1 0 10.8" />
+        </g>
+        <path class="speaker-slash" d="M16.5 9.5 21 14m0-4.5L16.5 14" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- ===================== TITLE / LOADOUT ===================== -->
+  <section id="title" class="screen">
+    <h1 class="wordmark" aria-label="Pen Fight">
+      <span class="wm-kicker" aria-hidden="true">
+        <i></i>Tactical Desk Combat<i></i>
+      </span>
+      <span class="wm-lock" aria-hidden="true">
+        <span class="wm-pen">Pen</span>
+        <span class="wm-fight" data-text="Fight">Fight</span>
+      </span>
+    </h1>
+
+    <div class="swipe-zone" id="swipe-zone" aria-hidden="true">
+      <button class="swipe-arrow swipe-arrow--prev" id="pen-prev"
+              type="button" aria-label="Previous pen"></button>
+      <button class="swipe-arrow swipe-arrow--next" id="pen-next"
+              type="button" aria-label="Next pen"></button>
+    </div>
+
+    <div class="hero" id="hero">
+      <span class="hero-brand" id="hero-brand">Reynolds</span>
+      <h2 class="hero-model" id="hero-model">045</h2>
+    </div>
+
+    <div class="title-foot">
+      <div class="pager" id="pen-pager" role="radiogroup" aria-label="Choose your pen"></div>
+
+      <button class="cta" id="btn-play"><span>Fight</span></button>
+
+      <a class="credit" href="https://www.studio4by5.com" target="_blank" rel="noopener">
+        made with ♥ by <b>studio 4by5</b>
+      </a>
+    </div>
+  </section>
+
+  <!-- ===================== RESULT ===================== -->
+  <section id="result" class="screen screen--overlay" hidden>
+    <div class="card glass">
+      <div class="card-kicker" id="result-kicker">Round 1</div>
+      <h2 class="card-title" id="result-title">Knocked off</h2>
+      <p class="card-body" id="result-body"></p>
+      <div class="card-actions" id="result-actions" hidden>
+        <button class="cta cta--sm" id="btn-rematch">Rematch</button>
+        <button class="ghost" id="btn-change">Change pen</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="boot" class="boot">
+    <div class="boot-bar"><i></i></div>
+    <span id="boot-label">Carving the ledge</span>
+  </div>
+
+</body>
+</html>
