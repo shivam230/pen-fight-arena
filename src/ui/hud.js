@@ -48,9 +48,6 @@ export class UI {
       knockoutTitle: $('knockout-title'),
       play: $('btn-play'),
 
-      replay: $('replay'),
-      replaySub: $('replay-sub'),
-      skip: $('btn-skip'),
 
       resultKicker: $('result-kicker'),
       resultTitle: $('result-title'),
@@ -182,7 +179,6 @@ export class UI {
     this.el.play.addEventListener('click', () => this._fire('play'));
     this.el.rematch.addEventListener('click', () => this._fire('rematch'));
     this.el.change.addEventListener('click', () => this._fire('change'));
-    this.el.skip.addEventListener('click', () => this._fire('skip'));
     this.el.sound.addEventListener('click', () => {
       const muted = this.el.sound.classList.toggle('muted');
       this.el.sound.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
@@ -286,14 +282,6 @@ export class UI {
   hideKnockout() {
     clearTimeout(this._knockTimer);
     this.el.knockout.classList.remove('on');
-  }
-
-  setReplay(on, subtitle) {
-    this.el.replay.classList.toggle('on', on);
-    if (subtitle) this.el.replaySub.textContent = subtitle;
-    // Hide the playing HUD during the cinematic — letterbox plus a scoreboard
-    // reads as a bug, not a replay.
-    this.el.hud.hidden = on;
   }
 
   toast(title, body, ms = 3200) {

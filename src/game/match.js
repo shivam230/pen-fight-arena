@@ -22,7 +22,6 @@ import { buildPen, buildContactShadow, restHeight } from '../render/penMesh.js';
 import { BIOMES } from '../render/biomes.js';
 import { audio } from '../audio/sfx.js';
 import { impulseFor, OVERCHARGE_AT } from './tuning.js';
-import { TurnRecorder, ReplayDirector } from './replay.js';
 import { hapticImpact, hapticKnockout } from '../platform/native.js';
 
 const ROUNDS_TO_WIN = 2;         // best of three
@@ -64,7 +63,6 @@ export const STATE = {
   RESOLVE: 'resolve',
   CPU_THINK: 'cpu-think',
   CPU_RESOLVE: 'cpu-resolve',
-  REPLAY: 'replay',
   ROUND_OVER: 'round-over',
   MATCH_OVER: 'match-over',
 };
@@ -81,8 +79,6 @@ export class Match {
 
     // One fixed skill level — see SKILL in ai.js.
     this.ai = new AiPlanner(this.world);
-    this.recorder = new TurnRecorder(2);
-    this.replay = null;
     this.score = { player: 0, cpu: 0 };
     this.roundNumber = 0;
     this.cleanKnocks = { player: 0, cpu: 0 };
@@ -328,11 +324,6 @@ export class Match {
   }
 
   _doFlick(pen, angle, power, offset) {
-    // Only the player's turns are recorded — the cinematic only ever fires for a
-    // clean knock they made, so recording the rival's turns is pure waste.
-    if (pen === this.playerPen) this.recorder.start(this.world.pens);
-    else this.recorder.reset();
-
     const j = impulseFor(pen.spec, power);
     pen.flick(Math.cos(angle), Math.sin(angle), j, offset);
     this._flickerThisTurn = pen;
@@ -395,10 +386,6 @@ export class Match {
         this._stepPhysics(dt);
         break;
 
-      case STATE.REPLAY:
-        this._updateReplay(dt);
-        break;
-
       case STATE.ROUND_OVER:
         this._timer += dt;
         this.stage.setOverview(dt, this.arena.extent * this._shrink);
@@ -431,14 +418,21 @@ export class Match {
     }
     this.world.step(dt);
     this._handleEvents();
-    this.recorder.capture(dt);
 
-    // Scrape audio follows the fastest-moving pen.
+    // Scrape audio follows the fastest-moving pen, and anything moving fast enough
+    // throws grit off the surface. This used to run only inside the replay; a pen
+    // skating across wet rock or basalt should shed spray every time, not just on
+    // the highlight reel.
     let fastest = 0, fx = 0;
     for (const p of this.world.pens) {
       if (!p.alive || p.falling) continue;
-      const s = p.speed();
-      if (s > fastest) { fastest = s; fx = p.x; }
+      const sp = p.speed();
+      if (sp > fastest) { fastest = sp; fx = p.x; }
+      if (sp > 0.45) {
+        this.stage.impactFX.friction(
+          p.x, p.y, Math.min(1, sp / 2.6), p.vx / sp, p.vy / sp, dt, 46,
+        );
+      }
     }
     audio.setSlide(Math.min(1, fastest / 2.4), this._panFor(fx));
 
@@ -473,7 +467,6 @@ export class Match {
           hapticImpact(e.strength);
           this.stage.impactFX.impact(e.x, e.y, e.strength);
           this.stage.shake(e.strength * 0.03);
-          this.recorder.noteImpact(e.x, e.y, e.strength);
           break;
         }
         case 'obstacle':
@@ -486,7 +479,6 @@ export class Match {
           this.stage.impactFX.knockout(e.x, e.y,
             e.pen.owner === 'player' ? 0x24e8c6 : 0xff4655);
           this.stage.shake(0.02);
-          this.recorder.noteFall(e.pen);
           if (e.pen === this._flickerThisTurn) this._selfWasSafe = false;
           // Drop into slow motion for the moment of the knockout. At full speed a
           // pen crosses the lip in about three frames, which is why it was
@@ -542,38 +534,11 @@ export class Match {
         && this._flickerThisTurn.owner === winner);
       if (clean) this.cleanKnocks[winner]++;
       this._pendingResult = { winner, clean, score: this.score };
-
-      // A clean knock the player made earns the cinematic; everything else goes
-      // straight to the round card.
-      if (winner === 'player' && clean && this.recorder.frames > 8) {
-        this._startReplay();
-      } else {
-        this._showRoundResult();
-      }
+      this._showRoundResult();
       return;
     }
 
     this._advanceTurn();
-  }
-
-  _startReplay() {
-    const pens = this.world.pens;
-    const hero = pens.indexOf(this.playerPen);
-    const victim = pens.indexOf(this.cpuPen);
-    this.replay = new ReplayDirector(this.recorder, hero, victim,
-      this.arena.extent * this._shrink);
-    this.state = STATE.REPLAY;
-    this._hideAim();
-    audio.setSlide(0, 0);
-    this.emit('replay', { on: true });
-  }
-
-  /** Cut the cinematic short and go to the round card. */
-  skipReplay() {
-    if (this.state !== STATE.REPLAY) return;
-    this.replay = null;
-    this.emit('replay', { on: false });
-    this._showRoundResult();
   }
 
   _showRoundResult() {
@@ -582,60 +547,6 @@ export class Match {
     this.state = STATE.ROUND_OVER;
     this._timer = 0;
     if (r) this.emit('roundover', r);
-  }
-
-  _updateReplay(dt) {
-    const d = this.replay;
-    if (!d) { this._showRoundResult(); return; }
-    const pens = this.world.pens;
-    d.update(dt, {
-      stage: this.stage,
-      setPose: (i, pose) => {
-        const p = pens[i];
-        if (!p) return;
-        p.x = pose.x; p.y = pose.y; p.a = pose.a;
-        p.height = pose.height; p.tumble = pose.tumble;
-        // state 2 = mid-fall: keep it visible so we can watch it drop.
-        p.falling = pose.state === 2;
-        p.alive = pose.state !== 0 || p.falling;
-      },
-      friction: (x, z, intensity, dx, dz, step) => {
-        this.stage.impactFX.friction(x, z, intensity, dx, dz, step, 150);
-      },
-      onImpact: (x, z, strength) => {
-        this.stage.impactFX.impact(x, z, Math.max(0.7, strength));
-        this.stage.shake(0.03);
-        audio.clack(Math.max(0.75, strength), this._panFor(x));
-      },
-    });
-    if (d.done) {
-      this.replay = null;
-      this.emit('replay', { on: false });
-      this._showRoundResult();
-    }
-  }
-
-  /**
-   * Round ran to the cap: award it to the pen nearer the middle, as a fraction of
-   * the local radius rather than raw distance — the arena is not a circle.
-   */
-  _decideOnCentreControl() {
-    const exposure = (pen) => {
-      const r = Math.hypot(pen.x, pen.y);
-      return r / Math.max(1e-6, this.world.edgeRadius(pen.x, pen.y));
-    };
-    const mine = exposure(this.playerPen);
-    const theirs = exposure(this.cpuPen);
-    const winner = mine <= theirs ? 'player' : 'cpu';
-    this.score[winner]++;
-    this._pendingResult = { winner, clean: false, score: this.score, onCentre: true };
-    this.emit('toast', {
-      title: 'Ledge collapsed',
-      body: winner === 'player'
-        ? 'You held the middle. Round yours.'
-        : 'They held the middle. Round theirs.',
-    });
-    this._showRoundResult();
   }
 
   _rescue(pen) {

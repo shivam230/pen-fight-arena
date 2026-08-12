@@ -120,8 +120,6 @@ function wireMatch(m, cpuId) {
 
   m.on('toast', ({ title, body }) => ui.toast(title, body));
 
-  m.on('replay', ({ on }) => ui.setReplay(on, 'Clean knock'));
-
   m.on('roundover', ({ winner, clean, score }) => {
     ui.setScore(score);
     ui.setPower(null);
@@ -235,7 +233,6 @@ ui.on('mute', (muted) => {
   audio.setMuted(muted);
   setHapticsEnabled(!muted);
 });
-ui.on('skip', () => match && match.skipReplay());
 
 ui.on('play', async () => {
   audio.unlock();

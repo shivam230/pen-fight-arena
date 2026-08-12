@@ -790,80 +790,6 @@ body {
 .card-body { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink-dim); }
 .card-actions { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
 
-/* ------------------------- replay cinematic ------------------------- */
-
-.replay {
-  position: fixed;
-  inset: 0;
-  z-index: 15;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 320ms ease;
-}
-.replay.on { opacity: 1; }
-/* Letterbox bars — the cheapest, most legible "this is a cutscene" signal. */
-.replay::before,
-.replay::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 9vh;
-  background: #000;
-  transform: scaleY(0);
-  transition: transform 380ms var(--ease);
-}
-.replay::before { top: 0; transform-origin: top; }
-.replay::after { bottom: 0; transform-origin: bottom; }
-.replay.on::before, .replay.on::after { transform: scaleY(1); }
-
-.replay-label {
-  position: absolute;
-  left: 50%;
-  top: calc(9vh + 22px);
-  transform: translateX(-50%);
-  text-align: center;
-  opacity: 0;
-  transition: opacity 300ms ease 220ms;
-}
-.replay.on .replay-label { opacity: 1; }
-.replay-label b {
-  display: block;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.44em;
-  text-indent: 0.44em;
-  text-transform: uppercase;
-  color: var(--accent);
-  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.9);
-}
-.replay-label span {
-  font-size: 11px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.replay-skip {
-  position: absolute;
-  right: calc(var(--safe-r) + 16px);
-  bottom: calc(9vh + 18px);
-  padding: 9px 16px;
-  --chamfer: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-  pointer-events: auto;
-  border: 0;
-  font-family: inherit;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 300ms ease 500ms;
-}
-.replay.on .replay-skip { opacity: 1; }
-
 /* ------------------------------- boot ------------------------------- */
 
 .boot {
@@ -944,5 +870,4 @@ body {
   .side { padding: 5px 9px 6px; }
   .side-name { font-size: 10px; }
   .pip { width: 18px; height: 3px; }
-  .replay::before, .replay::after { height: 7vh; }
 }

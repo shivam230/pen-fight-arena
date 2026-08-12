@@ -94,6 +94,40 @@ function barrelTexture(spec) {
   return tex;
 }
 
+let roughTex = null;
+/**
+ * Fine longitudinal scratches for the barrel's roughness channel.
+ *
+ * A moulded pen is never optically uniform — it carries mould-flow lines and
+ * handling marks along its length. Without them the specular highlight is a
+ * perfect unbroken stripe, which is the single biggest tell that a render is CG.
+ * One shared 64x256 greyscale costs nothing and every barrel reuses it.
+ */
+function barrelRoughness() {
+  if (roughTex) return roughTex;
+  const W = 64, H = 256;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 150; i++) {
+    const x = Math.random() * W;
+    const light = Math.random() > 0.5;
+    ctx.strokeStyle = light ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.16)';
+    ctx.lineWidth = 0.5 + Math.random() * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x, Math.random() * H);
+    ctx.lineTo(x + (Math.random() - 0.5) * 2, H * (0.3 + Math.random() * 0.7));
+    ctx.stroke();
+  }
+  roughTex = new THREE.CanvasTexture(cv);
+  roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
+  roughTex.repeat.set(3, 1);
+  roughTex.anisotropy = 8;
+  return roughTex;
+}
+
 function segmentsFor(profile) {
   if (profile === 'hex') return 6;
   if (profile === 'triangle') return 3;
@@ -165,19 +199,22 @@ function makeMaterials(spec, quality) {
       break;
     case FINISH.METALLIC:
       barrel = new THREE.MeshPhysicalMaterial({
-        map: barrelTexture(spec), metalness: 0.72, roughness: 0.26,
+        map: barrelTexture(spec), roughnessMap: barrelRoughness(),
+        metalness: 0.72, roughness: 0.26,
         clearcoat: 0.5, clearcoatRoughness: 0.14, envMapIntensity: 1.3,
       });
       break;
     case FINISH.MATTE:
       barrel = new THREE.MeshPhysicalMaterial({
-        map: barrelTexture(spec), metalness: 0.0, roughness: 0.64,
+        map: barrelTexture(spec), roughnessMap: barrelRoughness(),
+        metalness: 0.0, roughness: 0.64,
         clearcoat: 0.16, clearcoatRoughness: 0.5, envMapIntensity: 0.85,
       });
       break;
     default: // GLOSS
       barrel = new THREE.MeshPhysicalMaterial({
-        map: barrelTexture(spec), metalness: 0.0, roughness: 0.19,
+        map: barrelTexture(spec), roughnessMap: barrelRoughness(),
+        metalness: 0.0, roughness: 0.19,
         clearcoat: 0.75, clearcoatRoughness: 0.07, envMapIntensity: 1.15,
       });
   }

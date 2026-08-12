@@ -19,8 +19,12 @@ import { glowPoints } from './fx.js';
 
 const BASE_RADIUS = 0.62;   // metres — a pen is ~1/9th of the arena, as on a desk
 const CLIFF_DEPTH = 22;
-const TOP_RINGS = 26;
-const TOP_SEGS = 120;
+// Raised from 26x120. The surface detail a polar grid can carry is capped by its
+// RADIAL sampling — anything finer aliases into a pinwheel moire — so the only way
+// to get genuinely rocky ground rather than a smooth dome is more rings. 41x161
+// verts is nothing next to the 7k the distant range already costs.
+const TOP_RINGS = 40;
+const TOP_SEGS = 160;
 
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
@@ -114,12 +118,15 @@ function polarMesh(rings, segs, sample, closedCentre, normalOf, tCurve = 1) {
 function buildPlateauTop(biome, noise, boundary) {
   const g = biome.ground;
 
-  // Relief is a few millimetres: the solver treats the top as a perfect plane, so
-  // anything taller would visibly swallow the pens.
-  // Frequencies are capped to what a 26-ring polar grid can actually resolve
-  // radially; anything higher aliases into a pinwheel moiré across the disc.
+  // Relief stays a few millimetres — the solver treats the top as a perfect plane,
+  // so anything taller would visibly swallow the pens — but with 40 rings the grid
+  // resolves roughly 32 cycles/m, so the detail octaves can go far finer than
+  // before without aliasing. This is what turns the ground from a smooth dome into
+  // something that reads as rock under a moving light.
   const relief = (x, z) =>
-    noise.fbm(x * 4.5, z * 4.5, 3) * 0.0060 + noise.fbm(x * 9, z * 9, 2) * 0.0020;
+    noise.fbm(x * 4.5, z * 4.5, 3) * 0.0055
+    + noise.fbm(x * 11, z * 11, 3) * 0.0022
+    + noise.fbm(x * 23, z * 23, 2) * 0.0009;
 
   const eps = 0.004;
   const normalOf = (x, z, out) => {
@@ -135,7 +142,7 @@ function buildPlateauTop(biome, noise, boundary) {
     const y = relief(x, z);
 
     const grain = noise.fbm(x * 6 + 40, z * 6, 3) * 0.5 + 0.5;
-    const fine = noise.fbm(x * 13, z * 13, 2) * 0.5 + 0.5;
+    const fine = noise.fbm(x * 22, z * 22, 2) * 0.5 + 0.5;
     lerpColorInto(out, g.low, g.mid, 0.25 + grain * 0.85);
     const hi = Math.max(0, grain - 0.66) * 1.9;
     if (hi > 0) out.lerp(_hi.setHex(g.high, THREE.SRGBColorSpace), Math.min(1, hi) * 0.7);

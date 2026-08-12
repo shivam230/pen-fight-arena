@@ -6,16 +6,26 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5180",
     "build": "vite build",
-    "preview": "vite preview --port 5180"
+    "preview": "vite preview --port 5180",
+    "assets": "capacitor-assets generate --iconBackgroundColor \"#05070a\" --splashBackgroundColor \"#05070a\" && node tools/make-assets.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0",
+    "typescript": "^7.0.2",
     "vite": "^8.2.0"
   },
   "private": true

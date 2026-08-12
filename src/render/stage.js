@@ -129,7 +129,10 @@ export class Stage {
     const dprCap = tier === 'high' ? 1.75 : tier === 'medium' ? 1.5 : 1.25;
     this._dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    const shadowSize = tier === 'low' ? 768 : 1024;
+    // 2048 on the top tier. The shadow frustum is fitted to a 1.2 m plateau, so
+    // every extra texel lands on the pens themselves — this is the cheapest
+    // realism win available, and the one the eye reads first.
+    const shadowSize = tier === 'high' ? 2048 : tier === 'medium' ? 1024 : 768;
     this.key.shadow.mapSize.set(shadowSize, shadowSize);
     if (this.key.shadow.map) {
       this.key.shadow.map.dispose();
@@ -345,22 +348,6 @@ export class Stage {
     if (t <= 0) return false;
     out.copy(_ray.ray.origin).addScaledVector(_ray.ray.direction, t);
     return true;
-  }
-
-  /** Direct camera control, used by the replay director. */
-  setFreeView(px, py, pz, lx, ly, lz, fov, lambda = 6) {
-    this._wantPos.set(px, py, pz);
-    this._wantLook.set(lx, ly, lz);
-    this._fovWant = fov ?? this._fovBase;
-    this._camLambda = lambda;
-  }
-
-  /** Snap the camera instantly — for hard cuts between replay shots. */
-  cutCamera() {
-    this.camPos.copy(this._wantPos);
-    this.camLook.copy(this._wantLook);
-    this.camera.fov = this._fovWant;
-    this.camera.updateProjectionMatrix();
   }
 
   /** Frame the whole arena from an orbiting hero angle. */
